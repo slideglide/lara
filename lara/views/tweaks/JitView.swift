@@ -11,6 +11,7 @@ struct proc: Identifiable {
     let id = UUID()
     let name: String
     let bundle: String
+    let executable: String
     let path: String
     let icon: UIImage?
 }
@@ -86,7 +87,7 @@ struct JitView: View {
                                 Spacer()
 
                                 Button {
-                                    enablejit(bundleID: proc.bundle)
+                                    enablejit(proc)
                                 } label: {
                                     if enablingbid == proc.bundle {
                                         ProgressView()
@@ -99,7 +100,7 @@ struct JitView: View {
                         }
                     }
                 } footer: {
-                    Text("Only works on apps with the `get-task-allow` entitlement.")
+                    Text("Only works on apps with the `get-task-allow` entitlement. Lara will launch the selected app if it is not already running.")
                 }
             }
             .navigationTitle("LaraJIT")
@@ -165,7 +166,8 @@ struct JitView: View {
         }
     }
 
-    private func enablejit(bundleID: String) {
+    private func enablejit(_ app: proc) {
+        let bundleID = app.bundle
         guard enablingbid == nil else { return }
         guard mgr.dsready else {
 	            globallogger.log("kernel r/w not ready")
@@ -182,17 +184,31 @@ struct JitView: View {
 					return
 				}
 
+                var bgTask: UIBackgroundTaskIdentifier = .invalid
+                bgTask = UIApplication.shared.beginBackgroundTask(withName: "EnableJIT") {
+                    if bgTask != .invalid {
+                        UIApplication.shared.endBackgroundTask(bgTask)
+                        bgTask = .invalid
+                    }
+                }
+
 				DispatchQueue.global(qos: .userInitiated).async {
 					let err: Int32 = bundleID.withCString { (cStr: UnsafePointer<Int8>) -> Int32 in
-						return enable_jit(sbProc, cStr)
+                        return app.executable.withCString { executableStr in
+                            enable_jit_for_process(sbProc, cStr, executableStr)
+                        }
 					}
 
 					DispatchQueue.main.async {
 						if err == 0 {
 							globallogger.log("(jit) enabled for \(bundleID)")
 						} else {
-							globallogger.log("(jit) error enabling for \(bundleID)!")
+							globallogger.log("(jit) error enabling for \(bundleID): \(err)")
 						}
+                        if bgTask != .invalid {
+                            UIApplication.shared.endBackgroundTask(bgTask)
+                            bgTask = .invalid
+                        }
 						enablingbid = nil
 					}
 				}
@@ -216,6 +232,7 @@ struct JitView: View {
         let infopath = apppath + "/Info.plist"
         var name = (apppath as NSString).lastPathComponent
         var bundle = "unknown"
+        var executable = (name as NSString).deletingPathExtension
         var icon: UIImage? = nil
         
         if let info = NSDictionary(contentsOfFile: infopath) {
@@ -228,6 +245,10 @@ struct JitView: View {
             
             if let bid = info["CFBundleIdentifier"] as? String {
                 bundle = bid
+            }
+
+            if let exec = info["CFBundleExecutable"] as? String {
+                executable = exec
             }
             
             if let icons = info["CFBundleIcons"] as? [String: Any],
@@ -248,6 +269,6 @@ struct JitView: View {
         }
         
         let finalicon = icon ?? UIImage(named: "unknown")
-        apps.append(proc(name: name, bundle: bundle, path: apppath, icon: finalicon))
+        apps.append(proc(name: name, bundle: bundle, executable: executable, path: apppath, icon: finalicon))
     }
 }
