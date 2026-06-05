@@ -37,6 +37,7 @@ struct DecryptView: View {
     @State private var errormsg: String? = nil
     @State private var pendingdecrypt: DecryptApp? = nil
     @State private var showipas = false
+    @State private var decryptedAppName: String? = nil
 
     private let documentspath = NSSearchPathForDirectoriesInDomains(.documentDirectory, .userDomainMask, true).first ?? ""
 
@@ -101,6 +102,20 @@ struct DecryptView: View {
         }
         .sheet(isPresented: $showipas) {
             DecryptedIPAListView(decryptedPath: documentspath + "/Decrypted")
+        }
+        .alert("Decryption Complete", isPresented: Binding(
+            get: { decryptedAppName != nil },
+            set: { if !$0 { decryptedAppName = nil } }
+        )) {
+            Button("Close", role: .cancel) {
+                decryptedAppName = nil
+            }
+            Button("View IPAs") {
+                decryptedAppName = nil
+                showipas = true
+            }
+        } message: {
+            Text("\(decryptedAppName ?? "The app") has been successfully decrypted.")
         }
         .onAppear {
             set_log_callback { msg in
@@ -354,6 +369,7 @@ struct DecryptView: View {
             DispatchQueue.main.async {
                 decryptingbid = nil
                 laramgr.shared.logmsg("(decrypt) ipa saved to \(ipaPath)")
+                decryptedAppName = app.name
             }
         }
     }
