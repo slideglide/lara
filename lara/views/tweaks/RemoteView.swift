@@ -311,7 +311,19 @@ struct RemoteView: View {
             
             Section {
                 Button {
-                    youtube_tweak(mgr.ytProc)
+                    if mgr.ytProc == nil {
+                        mgr.ytProc = RemoteCall(process: "youtube", useMigFilterBypass: false)
+                    }
+                    if let ytProc = mgr.ytProc {
+                        youtube_tweak(ytProc)
+                    } else {
+                        let error = RemoteCall.lastInitError()
+                        if let error, !error.isEmpty {
+                            mgr.logmsg("youtube RemoteCall init failed: \(error)")
+                        } else {
+                            mgr.logmsg("youtube RemoteCall init failed")
+                        }
+                    }
                 } label: {
                     Text("Generic Youtube Tweaks")
                 }
