@@ -99,8 +99,12 @@ extension String {
 private let eocdSignature: UInt32 = 0x06054b50
 private let cdSignature: UInt32 = 0x02014b50
 private let lfhSignature: UInt32 = 0x04034b50
+private let dataDescriptorSignature: UInt32 = 0x08074b50
 private let zip64EOCDLocatorSignature: UInt32 = 0x07064b50
 private let zip64EOCDRecordSignature: UInt32 = 0x06064b50
+private let zipUTF8Flag: UInt16 = 1 << 11
+private let zipDataDescriptorFlag: UInt16 = 1 << 3
+private let zipStreamBufferSize = 1024 * 1024
 
 public struct ZipEntry {
     public let path: String
@@ -395,17 +399,40 @@ private func writeLE32(_ value: UInt32, to data: inout Data) {
     withUnsafeBytes(of: value) { data.append(contentsOf: $0) }
 }
 
-private func crc32OfFile(at url: URL) -> (crc: UInt32, data: Data) {
-    let data = (try? Data(contentsOf: url)) ?? Data()
-    return (data.zipCRC32, data)
+private func streamStoredZipEntry(from sourceURL: URL, to output: FileHandle) throws -> (crc: UInt32, size: UInt64) {
+    let input = try FileHandle(forReadingFrom: sourceURL)
+    defer { try? input.close() }
+
+    var crc = uLong(0)
+    var total: UInt64 = 0
+
+    while true {
+        let data = try input.read(upToCount: zipStreamBufferSize) ?? Data()
+        if data.isEmpty { break }
+
+        total += UInt64(data.count)
+        crc = data.withUnsafeBytes { bytes in
+            guard let base = bytes.baseAddress else { return crc }
+            return crc32(crc, base.assumingMemoryBound(to: Bytef.self), uInt(data.count))
+        }
+        try output.write(contentsOf: data)
+    }
+
+    return (UInt32(truncatingIfNeeded: crc), total)
 }
 
 public func createZipArchive(fromDirectory sourceURL: URL, to destinationURL: URL, compressionMethod: UInt16 = 0) throws {
     let mgr = laramgr.shared
     var error = ""
     let fm = FileManager.default
-    var fileEntries: [(name: String, data: Data, crc32: UInt32)] = []
+    var fileEntries: [(name: String, url: URL)] = []
     var dirEntries: [String] = []
+
+    guard compressionMethod == 0 else {
+        error = "(zip) streaming writer only supports stored entries"
+        mgr.logmsg("\(error)")
+        throw ZipError.unsupportedCompression
+    }
 
     let resolvedSource = sourceURL.resolvingSymlinksInPath()
 
@@ -425,8 +452,7 @@ public func createZipArchive(fromDirectory sourceURL: URL, to destinationURL: UR
         if isDir.boolValue {
             dirEntries.append(relPath + "/")
         } else {
-            let (crc, data) = crc32OfFile(at: fileURL)
-            fileEntries.append((relPath, data, crc))
+            fileEntries.append((relPath, fileURL))
         }
     }
 
@@ -438,41 +464,60 @@ public func createZipArchive(fromDirectory sourceURL: URL, to destinationURL: UR
     let fh = try FileHandle(forWritingTo: destinationURL)
     defer { try? fh.close() }
 
-    var localOffsets: [UInt32] = []
     var cdEntries: [Data] = []
 
     for entry in fileEntries {
         let nameData = entry.name.data(using: .utf8)!
         let nameLen = UInt16(nameData.count)
-        let offset = UInt32(try fh.offset())
+        let rawOffset = try fh.offset()
+        guard rawOffset <= UInt64(UInt32.max) else {
+            error = "(zip) offset exceeds ZIP32 limit"
+            mgr.logmsg("\(error)")
+            throw ZipError.corruptArchive("\(error)")
+        }
+        let offset = UInt32(rawOffset)
 
         var lfh = Data()
         writeLE32(lfhSignature, to: &lfh)
         writeLE16(20, to: &lfh)
-        writeLE16(0, to: &lfh)
+        writeLE16(zipUTF8Flag | zipDataDescriptorFlag, to: &lfh)
         writeLE16(compressionMethod, to: &lfh)
         writeLE16(0, to: &lfh)
         writeLE16(0, to: &lfh)
-        writeLE32(entry.crc32, to: &lfh)
-        writeLE32(UInt32(entry.data.count), to: &lfh)
-        writeLE32(UInt32(entry.data.count), to: &lfh)
+        writeLE32(0, to: &lfh)
+        writeLE32(0, to: &lfh)
+        writeLE32(0, to: &lfh)
         writeLE16(nameLen, to: &lfh)
         writeLE16(0, to: &lfh)
         try fh.write(contentsOf: lfh)
         try fh.write(contentsOf: nameData)
-        try fh.write(contentsOf: entry.data)
+
+        let (crc, size) = try streamStoredZipEntry(from: entry.url, to: fh)
+        guard size <= UInt64(UInt32.max) else {
+            error = "(zip) file exceeds ZIP32 limit"
+            mgr.logmsg("\(error)")
+            throw ZipError.corruptArchive("\(error)")
+        }
+        let size32 = UInt32(size)
+
+        var descriptor = Data()
+        writeLE32(dataDescriptorSignature, to: &descriptor)
+        writeLE32(crc, to: &descriptor)
+        writeLE32(size32, to: &descriptor)
+        writeLE32(size32, to: &descriptor)
+        try fh.write(contentsOf: descriptor)
 
         var cd = Data()
         writeLE32(cdSignature, to: &cd)
         writeLE16(20, to: &cd)
         writeLE16(20, to: &cd)
-        writeLE16(0, to: &cd)
+        writeLE16(zipUTF8Flag | zipDataDescriptorFlag, to: &cd)
         writeLE16(compressionMethod, to: &cd)
         writeLE16(0, to: &cd)
         writeLE16(0, to: &cd)
-        writeLE32(entry.crc32, to: &cd)
-        writeLE32(UInt32(entry.data.count), to: &cd)
-        writeLE32(UInt32(entry.data.count), to: &cd)
+        writeLE32(crc, to: &cd)
+        writeLE32(size32, to: &cd)
+        writeLE32(size32, to: &cd)
         writeLE16(nameLen, to: &cd)
         writeLE16(0, to: &cd)
         writeLE16(0, to: &cd)
@@ -482,19 +527,24 @@ public func createZipArchive(fromDirectory sourceURL: URL, to destinationURL: UR
         writeLE32(offset, to: &cd)
         cd.append(nameData)
 
-        localOffsets.append(offset)
         cdEntries.append(cd)
     }
 
     for dirName in dirEntries {
         let nameData = dirName.data(using: .utf8)!
         let nameLen = UInt16(nameData.count)
-        let offset = UInt32(try fh.offset())
+        let rawOffset = try fh.offset()
+        guard rawOffset <= UInt64(UInt32.max) else {
+            error = "(zip) offset exceeds ZIP32 limit"
+            mgr.logmsg("\(error)")
+            throw ZipError.corruptArchive("\(error)")
+        }
+        let offset = UInt32(rawOffset)
 
         var lfh = Data()
         writeLE32(lfhSignature, to: &lfh)
         writeLE16(20, to: &lfh)
-        writeLE16(0, to: &lfh)
+        writeLE16(zipUTF8Flag, to: &lfh)
         writeLE16(0, to: &lfh)
         writeLE16(0, to: &lfh)
         writeLE16(0, to: &lfh)
@@ -510,7 +560,7 @@ public func createZipArchive(fromDirectory sourceURL: URL, to destinationURL: UR
         writeLE32(cdSignature, to: &cd)
         writeLE16(20, to: &cd)
         writeLE16(20, to: &cd)
-        writeLE16(0, to: &cd)
+        writeLE16(zipUTF8Flag, to: &cd)
         writeLE16(0, to: &cd)
         writeLE16(0, to: &cd)
         writeLE16(0, to: &cd)
@@ -529,14 +579,35 @@ public func createZipArchive(fromDirectory sourceURL: URL, to destinationURL: UR
         cdEntries.append(cd)
     }
 
-    let cdOffset = UInt32(try fh.offset())
-    var cdSize: UInt32 = 0
+    let rawCdOffset = try fh.offset()
+    guard rawCdOffset <= UInt64(UInt32.max) else {
+        error = "(zip) central directory offset exceeds ZIP32 limit"
+        mgr.logmsg("\(error)")
+        throw ZipError.corruptArchive("\(error)")
+    }
+    let cdOffset = UInt32(rawCdOffset)
+
+    var cdSize64: UInt64 = 0
     for cd in cdEntries {
         try fh.write(contentsOf: cd)
-        cdSize += UInt32(cd.count)
+        cdSize64 += UInt64(cd.count)
     }
 
-    let totalEntries = UInt16(fileEntries.count + dirEntries.count)
+    guard cdSize64 <= UInt64(UInt32.max) else {
+        error = "(zip) central directory size exceeds ZIP32 limit"
+        mgr.logmsg("\(error)")
+        throw ZipError.corruptArchive("\(error)")
+    }
+    let cdSize = UInt32(cdSize64)
+
+    let entryCount = fileEntries.count + dirEntries.count
+    guard entryCount <= Int(UInt16.max) else {
+        error = "(zip) entry count exceeds ZIP32 limit"
+        mgr.logmsg("\(error)")
+        throw ZipError.corruptArchive("\(error)")
+    }
+    let totalEntries = UInt16(entryCount)
+
     var eocd = Data()
     writeLE32(eocdSignature, to: &eocd)
     writeLE16(0, to: &eocd)

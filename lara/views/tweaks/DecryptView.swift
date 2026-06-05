@@ -263,29 +263,19 @@ struct DecryptView: View {
             try? fm.removeItem(atPath: workDir)
             try? fm.createDirectory(atPath: payloadDir, withIntermediateDirectories: true)
 
-            guard let enumerator = fm.enumerator(atPath: app.bundlePath) else {
+            do {
+                try fm.copyItem(atPath: app.bundlePath, toPath: destAppPath)
+            } catch {
                 DispatchQueue.main.async {
                     decryptingbid = nil
-                    errormsg = "Failed to enumerate bundle for copy"
-                    laramgr.shared.logmsg("(decrypt) cannot enumerate \(app.bundlePath)")
+                    errormsg = "Failed to copy app bundle: \(error.localizedDescription)"
+                    laramgr.shared.logmsg("(decrypt) copy failed: \(error.localizedDescription)")
                 }
                 return
             }
 
-            for case let subpath as String in enumerator {
-                let src = (app.bundlePath as NSString).appendingPathComponent(subpath)
-                let dst = (destAppPath as NSString).appendingPathComponent(subpath)
-                var isDir: ObjCBool = false
-                guard fm.fileExists(atPath: src, isDirectory: &isDir) else { continue }
-                if isDir.boolValue {
-                    try? fm.createDirectory(atPath: dst, withIntermediateDirectories: true)
-                } else {
-                    try? fm.copyItem(atPath: src, toPath: dst)
-                }
-            }
-
             let mainBinary = destAppPath + "/" + app.executable
-            let mainRet = decrypt_binary_pid((app.bundlePath + "/" + app.executable), pid, mainBinary)
+            let mainRet = decrypt_binary_pid(mainBinary, pid, mainBinary)
             guard mainRet == 0 else {
                 DispatchQueue.main.async {
                     decryptingbid = nil
@@ -405,5 +395,3 @@ struct AppRow: View {
         .opacity(isdecrypting ? 0.6 : 1.0)
     }
 }
-
-
