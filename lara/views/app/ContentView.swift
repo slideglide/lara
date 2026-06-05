@@ -235,8 +235,9 @@ struct ContentView: View {
                         Text("Error: \(error)")
                             .foregroundColor(.red)
                     }
-                    if RemoteCall.isLiveContainerRuntime() && !RemoteCall.isLiveProcessRuntime() {
-                        Text("RemoteCall needs a PAC-enabled LiveContainer launch context. The main exploit may still work when RemoteCall is unavailable.")
+                    if RemoteCall.liveContainerNeedsPACLaunchContext() {
+                        Text("LiveContainer launch context cannot generate arm64e PAC for RemoteCall. The main exploit may still work when RemoteCall is unavailable.")
+                            .foregroundColor(.orange)
                     }
                     if isdebugged() {
                         Text("Not available when a debugger is attached.")

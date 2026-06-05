@@ -107,6 +107,14 @@ final class laramgr: ObservableObject {
         let dataFolder: String
         let bundleFolder: String
     }
+
+    struct PocketPosterHash: Identifiable, Hashable {
+        let bundleID: String
+        let fileName: String
+        let value: String
+
+        var id: String { bundleID }
+    }
     
     func run(completion: ((Bool) -> Void)? = nil) {
         guard !dsrunning else { return }
@@ -525,50 +533,27 @@ final class laramgr: ObservableObject {
     }
 
     // inspired by nugget from leminlimez
-    func PPHelper() -> Bool {
-        do {
-            let dataFolder = "/private/var/mobile/Containers/Data/Application"
-            var bundleIDs = ["com.apple.PosterBoard"]
-            if UIDevice.current.userInterfaceIdiom == .phone {
-                bundleIDs.append("com.apple.CarPlayWallpaper")
-            }
-            guard let appList = getAppList() else { return false}
-            var hashes: [String:String] = [:]
-            for bundleID in bundleIDs {
-                if let appInfo = appList[bundleID] {
-                    hashes[bundleID] = appInfo.dataFolder
-                } else {
-                    // this shouldn't happen
-                    logmsg("Could not find app with bundle ID \(bundleID).")
-                    return false
-                }
-            }
-            var PPbundleID = "com.leemin.Pocket-Poster"
-            for (bundleID, info) in appList {
-                if info.executable == "Pocket Poster" {
-                    PPbundleID = bundleID
-                    break
-                } else if info.executable == "LiveContainer" {
-                    PPbundleID = bundleID
-                }
-            }
-            if let PPHash = appList[PPbundleID]?.dataFolder {
-                for bundleID in hashes.keys {
-                    let fileName = "Nugget" + bundleID.replacingOccurrences(of: "com.apple.", with: "") + "Hash"
-                    let content = hashes[bundleID]!
-                    let filePath = dataFolder + "/" + PPHash + "/Documents/" + fileName
-                    try content.write(to: URL(fileURLWithPath: filePath), atomically: true, encoding: .utf8)
-                    logmsg("Wrote hash \(content) to \(filePath)")
-                }
-                return true
-            } else {
-                logmsg("Please install Pocket Poster before using Pocket Poster Helper. If you do have Pocket Poster installed, make sure you did not modify the bundle ID. If you installed Pocket Poster inside of LiveContainer, make sure you also did not modify the bundle ID of LiveContainer.")
-                return false
-            }
-        } catch {
-            logmsg("Error with Pocket Poster Helper: \(error.localizedDescription)")
-            return false
+    func PPHelperHashes() -> [PocketPosterHash]? {
+        var bundleIDs = ["com.apple.PosterBoard"]
+        if UIDevice.current.userInterfaceIdiom == .phone {
+            bundleIDs.append("com.apple.CarPlayWallpaper")
         }
+
+        guard let appList = getAppList() else { return nil }
+        var hashes: [PocketPosterHash] = []
+        for bundleID in bundleIDs {
+            guard let appInfo = appList[bundleID], !appInfo.dataFolder.isEmpty else {
+                logmsg("Could not find app with bundle ID \(bundleID).")
+                return nil
+            }
+
+            hashes.append(PocketPosterHash(
+                bundleID: bundleID,
+                fileName: "Nugget" + bundleID.replacingOccurrences(of: "com.apple.", with: "") + "Hash",
+                value: appInfo.dataFolder
+            ))
+        }
+        return hashes
     }
 
     func getAppList() -> [String:AppInfo]? {

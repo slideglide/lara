@@ -24,6 +24,7 @@ struct ToolsView: View {
     @State private var pid: pid_t = getpid()
     @State private var status: String?
     @State private var crashname: String = "SpringBoard"
+    @State private var pocketPosterHashes: [laramgr.PocketPosterHash] = []
     
     private enum tokenclass: String, CaseIterable, Identifiable {
         case read = "com.apple.app-sandbox.read"
@@ -164,15 +165,29 @@ struct ToolsView: View {
 
             Section {
                 Button {
-                    if mgr.PPHelper() {
-                        status = "Succeeded. Open the Pocket Poster app, open settings and tap Detect."
+                    if let hashes = mgr.PPHelperHashes(), !hashes.isEmpty {
+                        pocketPosterHashes = hashes
+                        status = nil
                     } else {
+                        pocketPosterHashes = []
                         status = "Failed. Check logs."
                     }
                 } label: {
                     Text("Pocket Poster Helper")
                 }
                 .disabled(!mgr.sbxready)
+
+                ForEach(pocketPosterHashes) { hash in
+                    VStack(alignment: .leading, spacing: 6) {
+                        Text(hash.fileName)
+                            .font(.headline)
+
+                        Text(hash.value)
+                            .font(.system(.body, design: .monospaced))
+                            .foregroundColor(.secondary)
+                            .textSelection(.enabled)
+                    }
+                }
             } header: {
                 Text("Pocket Poster")
             } footer: {
