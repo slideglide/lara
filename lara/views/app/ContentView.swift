@@ -236,8 +236,16 @@ struct ContentView: View {
                             .foregroundColor(.red)
                     }
                     if RemoteCall.liveContainerNeedsPACLaunchContext() {
-                        Text("LiveContainer launch context cannot generate arm64e PAC for RemoteCall. The main exploit may still work when RemoteCall is unavailable.")
+                        Text("LiveContainer needs to relaunch Lara for an arm64e/PAC-capable RemoteCall context.")
                             .foregroundColor(.orange)
+                        Button("Relaunch for RemoteCall") {
+                            if RemoteCall.requestLiveContainerPACLaunchContext() {
+                                mgr.logmsg("requested LiveContainer relaunch for RemoteCall PAC context")
+                            } else {
+                                mgr.logmsg("failed to request LiveContainer relaunch for RemoteCall PAC context")
+                            }
+                        }
+                        .disabled(mgr.rcrunning)
                     }
                     if isdebugged() {
                         Text("Not available when a debugger is attached.")
