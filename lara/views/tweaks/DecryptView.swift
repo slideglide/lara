@@ -17,6 +17,14 @@ struct DecryptApp: Identifiable {
     var isEncrypted: DecryptStatus = .unknown
 }
 
+struct DecryptedIPA: Identifiable {
+    let id = UUID()
+    let url: URL
+    let name: String
+    let size: Int64
+    let modified: Date?
+}
+
 enum DecryptStatus {
     case encrypted, unencrypted, unknown
 }
@@ -28,6 +36,7 @@ struct DecryptView: View {
     @State private var decryptingbid: String? = nil
     @State private var errormsg: String? = nil
     @State private var pendingdecrypt: DecryptApp? = nil
+    @State private var showipas = false
 
     private let documentspath = NSSearchPathForDirectoriesInDomains(.documentDirectory, .userDomainMask, true).first ?? ""
 
@@ -80,6 +89,18 @@ struct DecryptView: View {
                 }
             }
             .navigationTitle("App Decrypt")
+            .toolbar {
+                ToolbarItem(placement: .topBarTrailing) {
+                    Button {
+                        showipas = true
+                    } label: {
+                        Image(systemName: "folder")
+                    }
+                }
+            }
+        }
+        .sheet(isPresented: $showipas) {
+            DecryptedIPAListView(decryptedPath: documentspath + "/Decrypted")
         }
         .onAppear {
             set_log_callback { msg in
@@ -333,11 +354,99 @@ struct DecryptView: View {
             DispatchQueue.main.async {
                 decryptingbid = nil
                 laramgr.shared.logmsg("(decrypt) ipa saved to \(ipaPath)")
-                DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) {
-                    presentShareSheet(with: URL(fileURLWithPath: ipaPath))
+            }
+        }
+    }
+}
+
+struct DecryptedIPAListView: View {
+    let decryptedPath: String
+    @Environment(\.dismiss) private var dismiss
+    @State private var ipas: [DecryptedIPA] = []
+
+    var body: some View {
+        NavigationStack {
+            List {
+                if ipas.isEmpty {
+                    Text("No IPA files")
+                        .foregroundColor(.secondary)
+                } else {
+                    ForEach(ipas) { ipa in
+                        HStack(spacing: 12) {
+                            Image(systemName: "doc")
+                                .foregroundColor(.accentColor)
+                            VStack(alignment: .leading, spacing: 3) {
+                                Text(ipa.name)
+                                    .font(.headline)
+                                Text(detailText(for: ipa))
+                                    .font(.caption)
+                                    .foregroundColor(.secondary)
+                            }
+                            Spacer()
+                            Button {
+                                presentShareSheet(with: ipa.url)
+                            } label: {
+                                Image(systemName: "square.and.arrow.up")
+                            }
+                            .buttonStyle(.borderless)
+                        }
+                    }
+                    .onDelete(perform: deleteIPAs)
+                }
+            }
+            .navigationTitle("Decrypted IPAs")
+            .toolbar {
+                ToolbarItem(placement: .cancellationAction) {
+                    Button("Done") { dismiss() }
+                }
+                ToolbarItem(placement: .topBarTrailing) {
+                    Button {
+                        loadIPAs()
+                    } label: {
+                        Image(systemName: "arrow.clockwise")
+                    }
                 }
             }
         }
+        .onAppear(perform: loadIPAs)
+    }
+
+    private func loadIPAs() {
+        let fm = FileManager.default
+        let dir = URL(fileURLWithPath: decryptedPath, isDirectory: true)
+        let files = (try? fm.contentsOfDirectory(
+            at: dir,
+            includingPropertiesForKeys: [.fileSizeKey, .contentModificationDateKey],
+            options: [.skipsHiddenFiles]
+        )) ?? []
+
+        ipas = files.compactMap { url in
+            guard url.pathExtension.lowercased() == "ipa" else { return nil }
+            let values = try? url.resourceValues(forKeys: [.fileSizeKey, .contentModificationDateKey])
+            return DecryptedIPA(
+                url: url,
+                name: url.lastPathComponent,
+                size: Int64(values?.fileSize ?? 0),
+                modified: values?.contentModificationDate
+            )
+        }
+        .sorted {
+            ($0.modified ?? .distantPast) > ($1.modified ?? .distantPast)
+        }
+    }
+
+    private func deleteIPAs(at offsets: IndexSet) {
+        let fm = FileManager.default
+        for index in offsets {
+            try? fm.removeItem(at: ipas[index].url)
+        }
+        loadIPAs()
+    }
+
+    private func detailText(for ipa: DecryptedIPA) -> String {
+        let sizeText = ByteCountFormatter.string(fromByteCount: ipa.size, countStyle: .file)
+        guard let modified = ipa.modified else { return sizeText }
+        return "\(sizeText) - \(modified.formatted(date: .abbreviated, time: .shortened))"
     }
 }
 
