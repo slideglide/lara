@@ -18,15 +18,24 @@ struct DecryptApp: Identifiable {
 }
 
 struct DecryptedIPA: Identifiable {
-    let id = UUID()
     let url: URL
     let name: String
     let size: Int64
     let modified: Date?
+
+    var id: String { url.path }
 }
 
 enum DecryptStatus {
     case encrypted, unencrypted, unknown
+}
+
+enum DecryptedIPAFilter: String, CaseIterable, Identifiable {
+    case all = "All"
+    case today = "Today"
+    case week = "7 Days"
+
+    var id: String { rawValue }
 }
 
 struct DecryptView: View {
@@ -379,35 +388,79 @@ struct DecryptedIPAListView: View {
     let decryptedPath: String
     @Environment(\.dismiss) private var dismiss
     @State private var ipas: [DecryptedIPA] = []
+    @State private var query = ""
+    @State private var filter: DecryptedIPAFilter = .all
+
+    private var filteredIPAs: [DecryptedIPA] {
+        let trimmedQuery = query.trimmingCharacters(in: .whitespacesAndNewlines)
+        let now = Date()
+        return ipas.filter { ipa in
+            let matchesQuery = trimmedQuery.isEmpty ||
+                ipa.name.localizedCaseInsensitiveContains(trimmedQuery)
+
+            let matchesFilter: Bool
+            switch filter {
+            case .all:
+                matchesFilter = true
+            case .today:
+                matchesFilter = ipa.modified.map { Calendar.current.isDateInToday($0) } ?? false
+            case .week:
+                matchesFilter = ipa.modified.map { $0 >= now.addingTimeInterval(-7 * 24 * 60 * 60) } ?? false
+            }
+
+            return matchesQuery && matchesFilter
+        }
+    }
 
     var body: some View {
         NavigationStack {
             List {
-                if ipas.isEmpty {
-                    Text("No IPA files")
-                        .foregroundColor(.secondary)
-                } else {
-                    ForEach(ipas) { ipa in
-                        HStack(spacing: 12) {
-                            Image(systemName: "doc")
-                                .foregroundColor(.accentColor)
-                            VStack(alignment: .leading, spacing: 3) {
-                                Text(ipa.name)
-                                    .font(.headline)
-                                Text(detailText(for: ipa))
-                                    .font(.caption)
-                                    .foregroundColor(.secondary)
-                            }
-                            Spacer()
-                            Button {
-                                presentShareSheet(with: ipa.url)
-                            } label: {
-                                Image(systemName: "square.and.arrow.up")
-                            }
-                            .buttonStyle(.borderless)
+                Section {
+                    TextField("Filter IPAs", text: $query)
+                        .textInputAutocapitalization(.never)
+                        .autocorrectionDisabled()
+
+                    Picker("Filter", selection: $filter) {
+                        ForEach(DecryptedIPAFilter.allCases) { option in
+                            Text(option.rawValue).tag(option)
                         }
                     }
-                    .onDelete(perform: deleteIPAs)
+                    .pickerStyle(.segmented)
+
+                    Button {
+                        openInFiles()
+                    } label: {
+                        Label("Open in Files", systemImage: "folder")
+                    }
+                }
+
+                Section {
+                    if filteredIPAs.isEmpty {
+                        Text(ipas.isEmpty ? "No IPA files" : "No matching IPA files")
+                            .foregroundColor(.secondary)
+                    } else {
+                        ForEach(filteredIPAs) { ipa in
+                            HStack(spacing: 12) {
+                                Image(systemName: "doc")
+                                    .foregroundColor(.accentColor)
+                                VStack(alignment: .leading, spacing: 3) {
+                                    Text(ipa.name)
+                                        .font(.headline)
+                                    Text(detailText(for: ipa))
+                                        .font(.caption)
+                                        .foregroundColor(.secondary)
+                                }
+                                Spacer()
+                                Button {
+                                    presentShareSheet(with: ipa.url)
+                                } label: {
+                                    Image(systemName: "square.and.arrow.up")
+                                }
+                                .buttonStyle(.borderless)
+                            }
+                        }
+                        .onDelete(perform: deleteIPAs)
+                    }
                 }
             }
             .navigationTitle("Decrypted IPAs")
@@ -453,16 +506,33 @@ struct DecryptedIPAListView: View {
 
     private func deleteIPAs(at offsets: IndexSet) {
         let fm = FileManager.default
+        let visibleIPAs = filteredIPAs
+        let deletedPaths = Set(offsets.map { visibleIPAs[$0].url.path })
+
         for index in offsets {
-            try? fm.removeItem(at: ipas[index].url)
+            try? fm.removeItem(at: visibleIPAs[index].url)
         }
-        loadIPAs()
+
+        var transaction = Transaction(animation: nil)
+        transaction.disablesAnimations = true
+        withTransaction(transaction) {
+            ipas.removeAll { deletedPaths.contains($0.url.path) }
+        }
     }
 
     private func detailText(for ipa: DecryptedIPA) -> String {
         let sizeText = ByteCountFormatter.string(fromByteCount: ipa.size, countStyle: .file)
         guard let modified = ipa.modified else { return sizeText }
         return "\(sizeText) - \(modified.formatted(date: .abbreviated, time: .shortened))"
+    }
+
+    private func openInFiles() {
+        let dir = URL(fileURLWithPath: decryptedPath, isDirectory: true)
+        try? FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
+
+        let encodedPath = dir.path.addingPercentEncoding(withAllowedCharacters: .urlPathAllowed) ?? dir.path
+        guard let filesURL = URL(string: "shareddocuments://\(encodedPath)") else { return }
+        UIApplication.shared.open(filesURL)
     }
 }
 

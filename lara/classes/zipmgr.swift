@@ -194,7 +194,7 @@ public class ZipArchive {
         let totalEntries16: UInt16 = data.scan(at: eocdOffset + 10)
 
         if cdOffset32 == UInt32.max || cdSize32 == UInt32.max || totalEntries16 == UInt16.max {
-            let (z64off, z64rec) = try locateZIP64EOCD(eocdOffset: eocdOffset)
+            let (_, z64rec) = try locateZIP64EOCD(eocdOffset: eocdOffset)
             cdOffset = z64rec.isEmpty ? UInt64(cdOffset32) : z64rec.scan(at: 48) as UInt64
             cdSize = z64rec.isEmpty ? UInt64(cdSize32) : z64rec.scan(at: 40) as UInt64
             totalEntries = z64rec.isEmpty ? UInt64(totalEntries16) : z64rec.scan(at: 32) as UInt64

@@ -488,7 +488,11 @@ struct GestaltView: View {
     // default = 0 (off in Gesalt Terms), enable = 1 (on)
     // "gesalt" lol (roooot, 12.05.2026)
     // return just returns a boolean
-    private func mgKeyBinding<T: Equatable>(_ keys: [String], type: T.Type = Int.self, defaultValue: T? = 0, enableValue: T? = 1) -> Binding<Bool>  {
+    private func mgKeyBinding(_ keys: [String]) -> Binding<Bool> {
+        mgKeyBinding(keys, type: Int.self, defaultValue: 0, enableValue: 1)
+    }
+
+    private func mgKeyBinding<T: Equatable>(_ keys: [String], type: T.Type, defaultValue: T?, enableValue: T?) -> Binding<Bool>  {
         // immediately return false if it can't find cacheextra, again why is this here? i think it's safety.
         guard let cacheExtra = mgCurrentDict["CacheExtra"] as? NSMutableDictionary else {
             return State(initialValue: false).projectedValue

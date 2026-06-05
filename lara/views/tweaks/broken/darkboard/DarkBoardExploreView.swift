@@ -178,9 +178,7 @@ private struct GalleryThemeCard: View {
                 }
                 Text(theme.description)
 
-                Button {
-                    Task { await onDownload() }
-                } label: {
+                Button(action: onDownload) {
                     HStack {
                         if isDownloading {
                             ProgressView()

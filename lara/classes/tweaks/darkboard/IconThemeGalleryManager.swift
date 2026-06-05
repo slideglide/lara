@@ -106,10 +106,11 @@ final class IconThemeGalleryManager: ObservableObject {
         downloadingThemeNames.contains(theme.name)
     }
 
-    func downloadAndImport(_ theme: GalleryTheme, importer: IconThemeManager = .shared) async throws {
+    func downloadAndImport(_ theme: GalleryTheme, importer: IconThemeManager? = nil) async throws {
         if downloadingThemeNames.contains(theme.name) { return }
         downloadingThemeNames.insert(theme.name)
         defer { downloadingThemeNames.remove(theme.name) }
+        let importer = importer ?? .shared
 
         let remoteURL = try await absoluteURL(for: theme.url)
         let (temporaryURL, response) = try await session.download(from: remoteURL)
