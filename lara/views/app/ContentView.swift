@@ -263,6 +263,13 @@ struct ContentView: View {
             Button("Respring", action: {
                 mgr.respring()
             })
+
+            NavigationLink {
+                PosterBoardWallpapersView(mgr: mgr)
+            } label: {
+                Label("PosterBoard Wallpapers", systemImage: "photo.on.rectangle")
+            }
+            .disabled(!mgr.dsready)
             
             Button("Panic!", action: {
                 mgr.panic()
