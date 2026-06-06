@@ -78,6 +78,10 @@ private struct PosterBoardLockScreenView: View {
     @State private var isResetting = false
     @State private var isRefreshingHashes = false
 
+    private var isBusy: Bool {
+        isApplying || isResetting || isRefreshingHashes
+    }
+
     var body: some View {
         List {
             Section {
@@ -113,7 +117,7 @@ private struct PosterBoardLockScreenView: View {
                 } label: {
                     Label(isRefreshingHashes ? "Detecting..." : "Detect Hashes", systemImage: "wand.and.stars")
                 }
-                .disabled(isRefreshingHashes || !mgr.dsready || !posterBoardReady)
+                .disabled(isBusy || !mgr.dsready || !posterBoardReady)
             } header: {
                 Text("App Hash")
             }
@@ -124,7 +128,7 @@ private struct PosterBoardLockScreenView: View {
                 } label: {
                     Label("Import Tendies", systemImage: "doc.badge.plus")
                 }
-                .disabled(!posterBoardReady)
+                .disabled(isBusy || !posterBoardReady)
 
                 if wallpaperManager.selectedTendies.isEmpty {
                     Text("No tendies selected.")
@@ -149,7 +153,7 @@ private struct PosterBoardLockScreenView: View {
                     Label("Open PosterBoard", systemImage: "rectangle.portrait.and.arrow.right")
                         .foregroundStyle(.tint)
                 }
-                .disabled(!posterBoardReady)
+                .disabled(isBusy || !posterBoardReady)
 
                 Button {
                     applyPosterBoard()
@@ -157,7 +161,7 @@ private struct PosterBoardLockScreenView: View {
                     Label(isApplying ? "Applying..." : "Apply PosterBoard Wallpapers", systemImage: "checkmark.circle")
                         .foregroundStyle(.tint)
                 }
-                .disabled(isApplying || !posterBoardReady)
+                .disabled(isBusy || !posterBoardReady)
 
                 Button(role: .destructive) {
                     resetCollections()
@@ -165,7 +169,7 @@ private struct PosterBoardLockScreenView: View {
                     Label(isResetting ? "Resetting..." : "Reset Collections", systemImage: "arrow.clockwise.circle")
                         .foregroundStyle(.red)
                 }
-                .disabled(isResetting || !posterBoardReady)
+                .disabled(isBusy || !posterBoardReady)
             } header: {
                 Text("Actions")
             }
@@ -273,21 +277,15 @@ private struct PosterBoardLockScreenView: View {
 
     private func resetCollections() {
         guard !isResetting else { return }
-        guard !posterBoardHash.isEmpty else {
-            Alertinator.shared.alert(title: "Missing Hash", body: "Detect hashes before resetting PosterBoard collections.")
-            return
-        }
         isResetting = true
 
         DispatchQueue.global(qos: .userInitiated).async {
             let result = Result {
-                try wallpaperManager.clearPosterBoardCache()
                 if ProcessInfo.processInfo.operatingSystemVersion.majorVersion >= 18,
-                   let language = UserDefaults.standard.stringArray(forKey: "AppleLanguages")?.first,
-                   wallpaperManager.setSystemLanguage(to: language) {
+                   try wallpaperManager.resetPosterBoardCollections() {
                     return "PosterBoard will refresh automatically."
                 }
-                return "Collections cache was cleared. Open PosterBoard if it does not refresh."
+                return "Open PosterBoard and reset the collection manually if it does not refresh."
             }
 
             DispatchQueue.main.async {
@@ -585,6 +583,10 @@ private struct PosterBoardWallpaperIndexView: View {
 
     private func download(_ wallpaper: PosterBoardWallpaper) {
         guard downloadingID == nil else { return }
+        guard wallpaperManager.selectedTendies.count < PosterBoardWallpaperManager.maxTendies else {
+            Alertinator.shared.alert(title: "Download Failed", body: "You can only apply \(PosterBoardWallpaperManager.maxTendies) descriptors at once.")
+            return
+        }
         downloadingID = wallpaper.id
 
         Task {

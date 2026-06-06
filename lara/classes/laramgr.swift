@@ -544,7 +544,10 @@ final class laramgr: ObservableObject {
         for bundleID in bundleIDs {
             guard let appInfo = appList[bundleID], !appInfo.dataFolder.isEmpty else {
                 logmsg("Could not find app with bundle ID \(bundleID).")
-                return nil
+                if bundleID == "com.apple.PosterBoard" {
+                    return nil
+                }
+                continue
             }
 
             hashes.append(PocketPosterHash(

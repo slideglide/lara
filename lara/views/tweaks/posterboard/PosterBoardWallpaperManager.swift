@@ -5,6 +5,7 @@
 
 import Darwin
 import Combine
+import Dispatch
 import Foundation
 import UIKit
 
@@ -81,6 +82,7 @@ final class PosterBoardWallpaperManager: ObservableObject {
     private let fm = FileManager.default
     private var serverURL = ""
     private let mgr = laramgr.shared
+    private let operationQueue = DispatchQueue(label: "lara.posterboard.operation")
 
     private init() {}
 
@@ -141,6 +143,10 @@ final class PosterBoardWallpaperManager: ObservableObject {
     }
 
     func importTendies(from url: URL) throws -> URL {
+        guard url.pathExtension.lowercased() == "tendies" else {
+            throw PosterBoardApplyError.unexpected("Only .tendies wallpaper files can be imported.")
+        }
+
         let accessing = url.startAccessingSecurityScopedResource()
         defer {
             if accessing {
@@ -165,8 +171,11 @@ final class PosterBoardWallpaperManager: ObservableObject {
         }
 
         let destination = tendiesStoreURL().appendingPathComponent(url.lastPathComponent)
+        guard destination.pathExtension.lowercased() == "tendies" else {
+            throw PosterBoardApplyError.unexpected("The downloaded wallpaper is not a .tendies file.")
+        }
         try? fm.removeItem(at: destination)
-        try data.write(to: destination)
+        try data.write(to: destination, options: [.atomic])
         return destination
     }
 
@@ -206,10 +215,16 @@ final class PosterBoardWallpaperManager: ObservableObject {
     }
 
     func applyPosterBoard(appHash: String, tendies: [URL]) throws {
+        try performExclusiveOperation {
+            try applyPosterBoardLocked(appHash: appHash, tendies: tendies)
+        }
+    }
+
+    private func applyPosterBoardLocked(appHash: String, tendies: [URL]) throws {
         guard mgr.sbxready else {
             throw PosterBoardApplyError.systemNotInitialized
         }
-        guard !appHash.isEmpty else {
+        guard isValidAppHash(appHash) else {
             throw PosterBoardApplyError.missingHash("PosterBoard")
         }
 
@@ -227,16 +242,20 @@ final class PosterBoardWallpaperManager: ObservableObject {
 
         defer {
             cleanupSymlink()
-            try? fm.removeItem(at: documentsDirectory().appendingPathComponent("PosterBoardUnzip", isDirectory: true))
+            try? fm.removeItem(at: unzipRootURL())
+            try? fm.removeItem(at: stagingRootURL())
         }
 
         for (providerExtension, descriptorRoots) in extensionDescriptors {
+            guard isValidProviderExtension(providerExtension) else {
+                throw PosterBoardApplyError.unexpected("Invalid PosterBoard provider extension in tendies file.")
+            }
             _ = try createDescriptorsSymlink(appHash: appHash, providerExtension: providerExtension)
             for descriptorRoot in descriptorRoots {
                 for descriptor in try fm.contentsOfDirectory(at: descriptorRoot, includingPropertiesForKeys: nil, options: .skipsHiddenFiles) {
                     guard descriptor.lastPathComponent != "__MACOSX" else { continue }
                     try randomizeWallpaperIdentifier(in: descriptor)
-                    let staged = documentsDirectory().appendingPathComponent(UUID().uuidString, isDirectory: true)
+                    let staged = try createStagingURL()
                     try fm.moveItem(at: descriptor, to: staged)
                     try fm.trashItem(at: staged, resultingItemURL: nil)
                 }
@@ -245,15 +264,27 @@ final class PosterBoardWallpaperManager: ObservableObject {
         }
     }
 
-    func clearPosterBoardCache() throws {
-        guard mgr.sbxready else {
-            throw PosterBoardApplyError.systemNotInitialized
-        }
-        cleanupSymlink()
-        for file in try fm.contentsOfDirectory(at: documentsDirectory(), includingPropertiesForKeys: nil) {
-            if file.lastPathComponent != "CarPlayPhotos" {
-                try? fm.removeItem(at: file)
+    func clearPosterBoardScratch() throws {
+        try performExclusiveOperation {
+            guard mgr.sbxready else {
+                throw PosterBoardApplyError.systemNotInitialized
             }
+            cleanupSymlink()
+            try? fm.removeItem(at: tendiesStoreURL())
+            try? fm.removeItem(at: unzipRootURL())
+            try? fm.removeItem(at: stagingRootURL())
+        }
+    }
+
+    func resetPosterBoardCollections() throws -> Bool {
+        try performExclusiveOperation {
+            guard mgr.sbxready else {
+                throw PosterBoardApplyError.systemNotInitialized
+            }
+            guard let language = UserDefaults.standard.stringArray(forKey: "AppleLanguages")?.first else {
+                throw PosterBoardApplyError.unexpected("Could not read the active system language.")
+            }
+            return setSystemLanguage(to: language)
         }
     }
 
@@ -275,7 +306,25 @@ final class PosterBoardWallpaperManager: ObservableObject {
     }
 
     func supportsCarPlay() -> Bool {
-        UIDevice.current.userInterfaceIdiom == .phone
+        guard UIDevice.current.userInterfaceIdiom == .phone else {
+            return false
+        }
+
+        if ProcessInfo.processInfo.operatingSystemVersion.majorVersion >= 19 {
+            var buildBuffer = [CChar](repeating: 0, count: 16)
+            var buildBufferLength = size_t(buildBuffer.count - 1)
+            let result = sysctlbyname("kern.osversion", &buildBuffer, &buildBufferLength, nil, 0)
+            guard result == 0, let build = String(validatingUTF8: buildBuffer) else {
+                return false
+            }
+
+            return build == "23A5260n"
+                || build == "23A5260u"
+                || build == "23A5276f"
+                || build == "23A5287g"
+        }
+
+        return true
     }
 
     func carPlayCacheVersion() -> String {
@@ -325,10 +374,16 @@ final class PosterBoardWallpaperManager: ObservableObject {
     }
 
     func applyCarPlay(appHash: String, wallpapers: [PosterBoardCarPlayWallpaper]) throws -> [String] {
+        try performExclusiveOperation {
+            try applyCarPlayLocked(appHash: appHash, wallpapers: wallpapers)
+        }
+    }
+
+    private func applyCarPlayLocked(appHash: String, wallpapers: [PosterBoardCarPlayWallpaper]) throws -> [String] {
         guard mgr.sbxready else {
             throw PosterBoardApplyError.systemNotInitialized
         }
-        guard !appHash.isEmpty else {
+        guard isValidAppHash(appHash) else {
             throw PosterBoardApplyError.missingHash("CarPlayWallpaper")
         }
 
@@ -391,16 +446,14 @@ final class PosterBoardWallpaperManager: ObservableObject {
     }
 
     private func unzipTendies(at source: URL) throws -> URL {
-        let root = documentsDirectory().appendingPathComponent("PosterBoardUnzip", isDirectory: true)
+        let root = unzipRootURL()
         let destination = root.appendingPathComponent(UUID().uuidString, isDirectory: true)
         try fm.createDirectory(at: destination, withIntermediateDirectories: true)
 
         let archive = try ZipArchive(data: try Data(contentsOf: source))
         for entry in archive.entries {
-            let normalized = entry.path.replacingOccurrences(of: "\\", with: "/")
-            guard !normalized.contains("..") else { continue }
-
-            let output = destination.appendingPathComponent(normalized)
+            guard let normalized = safeZipPath(entry.path) else { continue }
+            let output = destination.appendingPathComponent(normalized, isDirectory: entry.isDirectory)
             if entry.isDirectory {
                 try fm.createDirectory(at: output, withIntermediateDirectories: true)
             } else {
@@ -419,9 +472,14 @@ final class PosterBoardWallpaperManager: ObservableObject {
                 let extensionsDir = item.appendingPathComponent("Library/Application Support/PRBPosterExtensionDataStore/61/Extensions")
                 var result: [String: [URL]] = [:]
                 for providerExtension in try fm.contentsOfDirectory(at: extensionsDir, includingPropertiesForKeys: nil, options: .skipsHiddenFiles) {
-                    result[providerExtension.lastPathComponent] = [providerExtension.appendingPathComponent("descriptors")]
+                    let descriptors = providerExtension.appendingPathComponent("descriptors", isDirectory: true)
+                    var isDirectory: ObjCBool = false
+                    guard fm.fileExists(atPath: descriptors.path, isDirectory: &isDirectory), isDirectory.boolValue else {
+                        continue
+                    }
+                    result[providerExtension.lastPathComponent] = [descriptors]
                 }
-                return result
+                return result.isEmpty ? nil : result
             case "descriptor", "descriptors", "ordered-descriptor", "ordered-descriptors":
                 return ["com.apple.WallpaperKit.CollectionsPoster": [item]]
             case "video-descriptor", "video-descriptors":
@@ -448,27 +506,25 @@ final class PosterBoardWallpaperManager: ObservableObject {
             case "com.apple.posterkit.provider.descriptor.identifier":
                 try String(randomizedID).data(using: .utf8)?.write(to: fileURL)
             case "com.apple.posterkit.provider.contents.userInfo":
-                setPlistValue(fileURL, key: "wallpaperRepresentingIdentifier", value: randomizedID)
+                try setPlistValue(fileURL, key: "wallpaperRepresentingIdentifier", value: randomizedID)
             case "Wallpaper.plist":
-                setPlistValue(fileURL, key: "identifier", value: randomizedID)
+                try setPlistValue(fileURL, key: "identifier", value: randomizedID)
             default:
                 continue
             }
         }
     }
 
-    private func setPlistValue(_ url: URL, key: String, value: Any) {
+    private func setPlistValue(_ url: URL, key: String, value: Any) throws {
         guard let data = try? Data(contentsOf: url),
               var plist = try? PropertyListSerialization.propertyList(from: data, options: [], format: nil) as? [String: Any],
               PropertyListSerialization.propertyList(plist, isValidFor: .xml) else {
-            return
+            throw PosterBoardApplyError.unexpected("Could not update \(url.lastPathComponent).")
         }
 
         plist[key] = value
-        guard let updated = try? PropertyListSerialization.data(fromPropertyList: plist, format: .xml, options: 0) else {
-            return
-        }
-        try? updated.write(to: url)
+        let updated = try PropertyListSerialization.data(fromPropertyList: plist, format: .xml, options: 0)
+        try updated.write(to: url, options: [.atomic])
     }
 
     private func createDescriptorsSymlink(appHash: String, providerExtension: String) throws -> URL {
@@ -477,7 +533,23 @@ final class PosterBoardWallpaperManager: ObservableObject {
     }
 
     private func createAppSymlink(for appHash: String) throws -> URL {
-        try createSymlink(to: "/var/mobile/Containers/Data/Application/\(appHash)")
+        let relativeComponents = appHash.split(separator: "/", omittingEmptySubsequences: false)
+        guard let hash = relativeComponents.first.map(String.init), isValidAppHash(hash) else {
+            throw PosterBoardApplyError.wrongHash
+        }
+
+        let containerPath = "/var/mobile/Containers/Data/Application/\(hash)"
+        var isDirectory: ObjCBool = false
+        guard fm.fileExists(atPath: containerPath, isDirectory: &isDirectory), isDirectory.boolValue else {
+            throw PosterBoardApplyError.wrongHash
+        }
+
+        let fullPath = "/var/mobile/Containers/Data/Application/\(appHash)"
+        guard fm.fileExists(atPath: fullPath, isDirectory: &isDirectory), isDirectory.boolValue else {
+            throw PosterBoardApplyError.collectionsNeedReset
+        }
+
+        return try createSymlink(to: fullPath)
     }
 
     private func createSymlink(to path: String) throws -> URL {
@@ -489,6 +561,54 @@ final class PosterBoardWallpaperManager: ObservableObject {
 
     private func cleanupSymlink() {
         try? fm.removeItem(at: documentsDirectory().appendingPathComponent(".Trash"))
+    }
+
+    private func unzipRootURL() -> URL {
+        documentsDirectory().appendingPathComponent("PosterBoardUnzip", isDirectory: true)
+    }
+
+    private func stagingRootURL() -> URL {
+        documentsDirectory().appendingPathComponent("PosterBoardStaging", isDirectory: true)
+    }
+
+    private func createStagingURL() throws -> URL {
+        let root = stagingRootURL()
+        try fm.createDirectory(at: root, withIntermediateDirectories: true)
+        return root.appendingPathComponent(UUID().uuidString, isDirectory: true)
+    }
+
+    private func safeZipPath(_ path: String) -> String? {
+        let normalized = path.replacingOccurrences(of: "\\", with: "/")
+        guard !normalized.hasPrefix("/") else { return nil }
+        let components = normalized.split(separator: "/", omittingEmptySubsequences: true)
+        guard !components.isEmpty else { return nil }
+        guard components.allSatisfy({ $0 != "." && $0 != ".." }) else { return nil }
+        return components.joined(separator: "/")
+    }
+
+    private func isValidAppHash(_ hash: String) -> Bool {
+        UUID(uuidString: hash) != nil
+    }
+
+    private func isValidProviderExtension(_ providerExtension: String) -> Bool {
+        guard !providerExtension.isEmpty,
+              !providerExtension.contains("/"),
+              !providerExtension.contains("\\"),
+              !providerExtension.contains("..") else {
+            return false
+        }
+        let allowed = CharacterSet(charactersIn: "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789.-")
+        return providerExtension.unicodeScalars.allSatisfy { allowed.contains($0) }
+    }
+
+    private func performExclusiveOperation<T>(_ operation: () throws -> T) throws -> T {
+        var result: Result<T, Error>!
+        operationQueue.sync {
+            result = Result {
+                try operation()
+            }
+        }
+        return try result.get()
     }
 
     private func carPlayWallpaperOrder() -> [String]? {
