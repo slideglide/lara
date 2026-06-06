@@ -9,7 +9,19 @@ import SwiftUI
 
 struct TweaksView: View {
     @AppStorage("logsdisplaymode") private var selectedlogsdisplaymode: logsdisplaymode = .toolbar
+    @AppStorage("selectedMethod") private var selectedMethod: method = .hybrid
     @ObservedObject var mgr: laramgr
+
+    private var posterBoardReady: Bool {
+        switch selectedMethod {
+        case .vfs:
+            return false
+        case .sbx:
+            return mgr.sbxready
+        case .hybrid:
+            return mgr.sbxready && mgr.vfsready
+        }
+    }
     
     var body: some View {
         NavigationStack {
@@ -29,7 +41,7 @@ struct TweaksView: View {
                     NavigationLink("PosterBoard Wallpapers") {
                         PosterBoardWallpapersView(mgr: mgr)
                     }
-                    .disabled(!mgr.dsready)
+                    .disabled(!mgr.dsready || !posterBoardReady)
                 }
                 
                 Section(header: HeaderLabel(text: "Apps", icon: "app")) {

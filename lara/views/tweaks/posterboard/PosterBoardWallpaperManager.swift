@@ -10,6 +10,7 @@ import UIKit
 
 enum PosterBoardApplyError: LocalizedError {
     case darkSwordNotReady
+    case systemNotInitialized
     case missingHash(String)
     case wrongHash
     case collectionsNeedReset
@@ -20,6 +21,8 @@ enum PosterBoardApplyError: LocalizedError {
         switch self {
         case .darkSwordNotReady:
             return "DarkSword is not ready."
+        case .systemNotInitialized:
+            return "Initialize SBX or Hybrid system access before using PosterBoard wallpapers."
         case .missingHash(let name):
             return "Could not find the app hash for \(name)."
         case .wrongHash:
@@ -84,6 +87,9 @@ final class PosterBoardWallpaperManager: ObservableObject {
     func refreshHashes() throws -> PosterBoardHashState {
         guard mgr.dsready && ds_is_ready() else {
             throw PosterBoardApplyError.darkSwordNotReady
+        }
+        guard mgr.sbxready else {
+            throw PosterBoardApplyError.systemNotInitialized
         }
         guard let hashes = mgr.PPHelperHashes() else {
             throw PosterBoardApplyError.unexpected("DarkSword could not enumerate app containers.")
@@ -200,6 +206,9 @@ final class PosterBoardWallpaperManager: ObservableObject {
     }
 
     func applyPosterBoard(appHash: String, tendies: [URL]) throws {
+        guard mgr.sbxready else {
+            throw PosterBoardApplyError.systemNotInitialized
+        }
         guard !appHash.isEmpty else {
             throw PosterBoardApplyError.missingHash("PosterBoard")
         }
@@ -237,6 +246,9 @@ final class PosterBoardWallpaperManager: ObservableObject {
     }
 
     func clearPosterBoardCache() throws {
+        guard mgr.sbxready else {
+            throw PosterBoardApplyError.systemNotInitialized
+        }
         cleanupSymlink()
         for file in try fm.contentsOfDirectory(at: documentsDirectory(), includingPropertiesForKeys: nil) {
             if file.lastPathComponent != "CarPlayPhotos" {
@@ -313,6 +325,9 @@ final class PosterBoardWallpaperManager: ObservableObject {
     }
 
     func applyCarPlay(appHash: String, wallpapers: [PosterBoardCarPlayWallpaper]) throws -> [String] {
+        guard mgr.sbxready else {
+            throw PosterBoardApplyError.systemNotInitialized
+        }
         guard !appHash.isEmpty else {
             throw PosterBoardApplyError.missingHash("CarPlayWallpaper")
         }

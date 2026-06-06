@@ -12,9 +12,26 @@ struct PosterBoardWallpapersView: View {
 
     @AppStorage("pbHash") private var posterBoardHash = ""
     @AppStorage("cpHash") private var carPlayHash = ""
+    @AppStorage("selectedMethod") private var selectedMethod: method = .hybrid
+
+    private var posterBoardReady: Bool {
+        switch selectedMethod {
+        case .vfs:
+            return false
+        case .sbx:
+            return mgr.sbxready
+        case .hybrid:
+            return mgr.sbxready && mgr.vfsready
+        }
+    }
 
     var body: some View {
-        PosterBoardLockScreenView(mgr: mgr, posterBoardHash: $posterBoardHash, carPlayHash: $carPlayHash)
+        PosterBoardLockScreenView(
+            mgr: mgr,
+            posterBoardReady: posterBoardReady,
+            posterBoardHash: $posterBoardHash,
+            carPlayHash: $carPlayHash
+        )
             .navigationTitle("PosterBoard")
             .navigationBarTitleDisplayMode(.large)
     }
@@ -52,6 +69,7 @@ private struct PosterBoardWallpaperIndexNavigationLink: View {
 private struct PosterBoardLockScreenView: View {
     @ObservedObject var mgr: laramgr
     @ObservedObject private var wallpaperManager = PosterBoardWallpaperManager.shared
+    let posterBoardReady: Bool
     @Binding var posterBoardHash: String
     @Binding var carPlayHash: String
 
@@ -95,7 +113,7 @@ private struct PosterBoardLockScreenView: View {
                 } label: {
                     Label(isRefreshingHashes ? "Detecting..." : "Detect Hashes", systemImage: "wand.and.stars")
                 }
-                .disabled(isRefreshingHashes || !mgr.dsready)
+                .disabled(isRefreshingHashes || !mgr.dsready || !posterBoardReady)
             } header: {
                 Text("App Hash")
             }
@@ -106,6 +124,7 @@ private struct PosterBoardLockScreenView: View {
                 } label: {
                     Label("Import Tendies", systemImage: "doc.badge.plus")
                 }
+                .disabled(!posterBoardReady)
 
                 if wallpaperManager.selectedTendies.isEmpty {
                     Text("No tendies selected.")
@@ -125,12 +144,20 @@ private struct PosterBoardLockScreenView: View {
 
             Section {
                 Button {
+                    openPosterBoard()
+                } label: {
+                    Label("Open PosterBoard", systemImage: "rectangle.portrait.and.arrow.right")
+                        .foregroundStyle(.tint)
+                }
+                .disabled(!posterBoardReady)
+
+                Button {
                     applyPosterBoard()
                 } label: {
                     Label(isApplying ? "Applying..." : "Apply PosterBoard Wallpapers", systemImage: "checkmark.circle")
                         .foregroundStyle(.tint)
                 }
-                .disabled(isApplying)
+                .disabled(isApplying || !posterBoardReady)
 
                 Button(role: .destructive) {
                     resetCollections()
@@ -138,7 +165,7 @@ private struct PosterBoardLockScreenView: View {
                     Label(isResetting ? "Resetting..." : "Reset Collections", systemImage: "arrow.clockwise.circle")
                         .foregroundStyle(.red)
                 }
-                .disabled(isResetting)
+                .disabled(isResetting || !posterBoardReady)
             } header: {
                 Text("Actions")
             }
@@ -235,6 +262,12 @@ private struct PosterBoardLockScreenView: View {
                     Alertinator.shared.alert(title: "Apply Failed", body: mappedApplyError(error).localizedDescription)
                 }
             }
+        }
+    }
+
+    private func openPosterBoard() {
+        if !wallpaperManager.openPosterBoard() {
+            Alertinator.shared.alert(title: "PosterBoard", body: "PosterBoard could not be opened directly.")
         }
     }
 
@@ -631,4 +664,3 @@ private struct PosterBoardWallpaperIndexTile: View {
         .clipShape(RoundedRectangle(cornerRadius: 8))
     }
 }
-
