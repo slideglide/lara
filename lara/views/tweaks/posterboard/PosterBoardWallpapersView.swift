@@ -14,11 +14,9 @@ struct PosterBoardWallpapersView: View {
     @AppStorage("pbHash") private var posterBoardHash = ""
     @AppStorage("cpHash") private var carPlayHash = ""
 
-    @State private var isRefreshingHashes = false
-
     var body: some View {
         TabView {
-            PosterBoardLockScreenView(posterBoardHash: $posterBoardHash, carPlayHash: $carPlayHash)
+            PosterBoardLockScreenView(mgr: mgr, posterBoardHash: $posterBoardHash, carPlayHash: $carPlayHash)
                 .tabItem {
                     Label("PosterBoard", systemImage: "lock")
                 }
@@ -36,48 +34,11 @@ struct PosterBoardWallpapersView: View {
                 }
         }
         .navigationTitle("PosterBoard Wallpapers")
-        .toolbar {
-            ToolbarItem(placement: .topBarTrailing) {
-                Button {
-                    refreshHashes()
-                } label: {
-                    if isRefreshingHashes {
-                        ProgressView()
-                    } else {
-                        Image(systemName: "key")
-                    }
-                }
-                .disabled(isRefreshingHashes || !mgr.dsready)
-            }
-        }
-    }
-
-    private func refreshHashes() {
-        guard !isRefreshingHashes else { return }
-        isRefreshingHashes = true
-
-        DispatchQueue.global(qos: .userInitiated).async {
-            let result = Result { try wallpaperManager.refreshHashes() }
-            DispatchQueue.main.async {
-                isRefreshingHashes = false
-                switch result {
-                case .success(let hashes):
-                    posterBoardHash = hashes.posterBoard
-                    if !hashes.carPlay.isEmpty {
-                        carPlayHash = hashes.carPlay
-                    }
-                    Haptic.shared.notify(.success)
-                    Alertinator.shared.alert(title: "Hashes Updated", body: "PosterBoard hashes were refreshed with DarkSword.")
-                case .failure(let error):
-                    Haptic.shared.notify(.error)
-                    Alertinator.shared.alert(title: "Hash Refresh Failed", body: error.localizedDescription)
-                }
-            }
-        }
     }
 }
 
 private struct PosterBoardLockScreenView: View {
+    @ObservedObject var mgr: laramgr
     @ObservedObject private var wallpaperManager = PosterBoardWallpaperManager.shared
     @Binding var posterBoardHash: String
     @Binding var carPlayHash: String
@@ -88,90 +49,87 @@ private struct PosterBoardLockScreenView: View {
     @State private var isRefreshingHashes = false
 
     var body: some View {
-        NavigationStack {
-            List {
-                Section {
-                    HStack {
-                        Text("PosterBoard")
-                        Spacer()
-                        Text(shortHash(posterBoardHash))
-                            .foregroundStyle(posterBoardHash.isEmpty ? .red : .secondary)
-                            .font(.system(.footnote, design: .monospaced))
-                            .lineLimit(1)
-                            .truncationMode(.middle)
-                    }
-
-                    HStack {
-                        Text("CarPlayWallpaper")
-                        Spacer()
-                        Text(shortHash(carPlayHash))
-                            .foregroundStyle(carPlayHash.isEmpty ? .red : .secondary)
-                            .font(.system(.footnote, design: .monospaced))
-                            .lineLimit(1)
-                            .truncationMode(.middle)
-                    }
-
-                    Button {
-                        refreshHashes()
-                    } label: {
-                        Label(isRefreshingHashes ? "Refreshing..." : "Refresh Hashes with DarkSword", systemImage: "key")
-                    }
-                    .disabled(isRefreshingHashes)
-                } header: {
-                    Text("App Hash")
-                } footer: {
-                    Text("Hashes are stored locally and reused by the PosterBoard and CarPlay tabs.")
+        List {
+            Section {
+                HStack {
+                    Text("PosterBoard")
+                    Spacer()
+                    Text(shortHash(posterBoardHash))
+                        .foregroundStyle(posterBoardHash.isEmpty ? .red : .secondary)
+                        .font(.system(.footnote, design: .monospaced))
+                        .lineLimit(1)
+                        .truncationMode(.middle)
                 }
 
-                Section {
-                    Button {
-                        showImporter = true
-                    } label: {
-                        Label("Import Tendies", systemImage: "doc.badge.plus")
-                    }
-
-                    if wallpaperManager.selectedTendies.isEmpty {
-                        Text("No tendies selected.")
-                            .foregroundStyle(.secondary)
-                    } else {
-                        ForEach(wallpaperManager.selectedTendies, id: \.self) { url in
-                            Text(url.deletingPathExtension().lastPathComponent)
-                                .lineLimit(1)
-                        }
-                        .onDelete { offsets in
-                            wallpaperManager.selectedTendies.remove(atOffsets: offsets)
-                        }
-                    }
-                } header: {
-                    Text("Lock Screen Wallpapers")
+                HStack {
+                    Text("CarPlayWallpaper")
+                    Spacer()
+                    Text(shortHash(carPlayHash))
+                        .foregroundStyle(carPlayHash.isEmpty ? .red : .secondary)
+                        .font(.system(.footnote, design: .monospaced))
+                        .lineLimit(1)
+                        .truncationMode(.middle)
                 }
 
-                Section {
-                    Button {
-                        applyPosterBoard()
-                    } label: {
-                        Label(isApplying ? "Applying..." : "Apply PosterBoard Wallpapers", systemImage: "checkmark.circle")
-                    }
-                    .disabled(isApplying || posterBoardHash.isEmpty || wallpaperManager.selectedTendies.isEmpty)
-
-                    Button(role: .destructive) {
-                        resetCollections()
-                    } label: {
-                        Label(isResetting ? "Resetting..." : "Reset Collections", systemImage: "arrow.clockwise.circle")
-                    }
-                    .disabled(isResetting || posterBoardHash.isEmpty)
-                } header: {
-                    Text("Actions")
+                Button {
+                    refreshHashes()
+                } label: {
+                    Label(isRefreshingHashes ? "Detecting..." : "Detect Hashes", systemImage: "wand.and.stars")
                 }
+                .disabled(isRefreshingHashes || !mgr.dsready)
+            } header: {
+                Text("App Hash")
             }
-            .navigationTitle("PosterBoard")
-            .fileImporter(
-                isPresented: $showImporter,
-                allowedContentTypes: [UTType(filenameExtension: "tendies") ?? .data],
-                allowsMultipleSelection: true
-            ) { result in
-                handleImport(result)
+
+            Section {
+                Button {
+                    showImporter = true
+                } label: {
+                    Label("Import Tendies", systemImage: "doc.badge.plus")
+                }
+
+                if wallpaperManager.selectedTendies.isEmpty {
+                    Text("No tendies selected.")
+                        .foregroundStyle(.secondary)
+                } else {
+                    ForEach(wallpaperManager.selectedTendies, id: \.self) { url in
+                        Text(url.deletingPathExtension().lastPathComponent)
+                            .lineLimit(1)
+                    }
+                    .onDelete { offsets in
+                        wallpaperManager.selectedTendies.remove(atOffsets: offsets)
+                    }
+                }
+            } header: {
+                Text("Lock Screen Wallpapers")
             }
+
+            Section {
+                Button {
+                    applyPosterBoard()
+                } label: {
+                    Label(isApplying ? "Applying..." : "Apply PosterBoard Wallpapers", systemImage: "checkmark.circle")
+                        .foregroundStyle(.tint)
+                }
+                .disabled(isApplying)
+
+                Button(role: .destructive) {
+                    resetCollections()
+                } label: {
+                    Label(isResetting ? "Resetting..." : "Reset Collections", systemImage: "arrow.clockwise.circle")
+                        .foregroundStyle(.red)
+                }
+                .disabled(isResetting)
+            } header: {
+                Text("Actions")
+            }
+        }
+        .fileImporter(
+            isPresented: $showImporter,
+            allowedContentTypes: [UTType(filenameExtension: "tendies") ?? .data],
+            allowsMultipleSelection: true
+        ) { result in
+            handleImport(result)
         }
     }
 
@@ -222,6 +180,14 @@ private struct PosterBoardLockScreenView: View {
 
     private func applyPosterBoard() {
         guard !isApplying else { return }
+        guard !posterBoardHash.isEmpty else {
+            Alertinator.shared.alert(title: "Missing Hash", body: "Detect hashes before applying PosterBoard wallpapers.")
+            return
+        }
+        guard !wallpaperManager.selectedTendies.isEmpty else {
+            Alertinator.shared.alert(title: "No Tendies Selected", body: "Import or download at least one PosterBoard wallpaper first.")
+            return
+        }
         isApplying = true
         let tendies = wallpaperManager.selectedTendies
         let hash = posterBoardHash
@@ -255,6 +221,10 @@ private struct PosterBoardLockScreenView: View {
 
     private func resetCollections() {
         guard !isResetting else { return }
+        guard !posterBoardHash.isEmpty else {
+            Alertinator.shared.alert(title: "Missing Hash", body: "Detect hashes before resetting PosterBoard collections.")
+            return
+        }
         isResetting = true
 
         DispatchQueue.global(qos: .userInitiated).async {
@@ -313,57 +283,57 @@ private struct PosterBoardCarPlayView: View {
     @State private var isApplying = false
 
     var body: some View {
-        NavigationStack {
-            ZStack(alignment: .bottom) {
-                ScrollView {
-                    if wallpapers.isEmpty {
-                        ProgressView()
-                            .padding(.top, 48)
-                    } else {
-                        LazyVGrid(columns: [GridItem(.adaptive(minimum: 150, maximum: 240))], spacing: 14) {
-                            ForEach($wallpapers) { wallpaper in
-                                PosterBoardCarPlayWallpaperTile(
-                                    wallpaper: wallpaper,
-                                    showDark: $showDark,
-                                    didChange: $didChange,
-                                    isActive: activeWallpapers.contains(wallpaper.name.wrappedValue)
-                                )
+        ZStack(alignment: .bottom) {
+            ScrollView {
+                if wallpapers.isEmpty {
+                    ProgressView()
+                        .padding(.top, 48)
+                } else {
+                    HStack {
+                        Spacer()
+                        Button {
+                            withAnimation {
+                                showDark.toggle()
                             }
+                        } label: {
+                            Label(showDark ? "Dark" : "Light", systemImage: showDark ? "moon" : "sun.max")
                         }
-                        .padding()
-                        .padding(.bottom, didChange ? 88 : 0)
+                        .buttonStyle(.bordered)
                     }
-                }
+                    .padding(.horizontal)
+                    .padding(.top)
 
-                if didChange {
-                    Button {
-                        applyCarPlay()
-                    } label: {
-                        Label(isApplying ? "Applying..." : "Apply CarPlay Wallpapers", systemImage: "checkmark.circle")
-                            .frame(maxWidth: .infinity)
-                    }
-                    .buttonStyle(.borderedProminent)
-                    .controlSize(.large)
-                    .disabled(isApplying || carPlayHash.isEmpty)
-                    .padding()
-                    .background(.bar)
-                }
-            }
-            .navigationTitle("CarPlay")
-            .toolbar {
-                ToolbarItem(placement: .topBarTrailing) {
-                    Button {
-                        withAnimation {
-                            showDark.toggle()
+                    LazyVGrid(columns: [GridItem(.adaptive(minimum: 150, maximum: 240))], spacing: 14) {
+                        ForEach($wallpapers) { wallpaper in
+                            PosterBoardCarPlayWallpaperTile(
+                                wallpaper: wallpaper,
+                                showDark: $showDark,
+                                didChange: $didChange,
+                                isActive: activeWallpapers.contains(wallpaper.name.wrappedValue)
+                            )
                         }
-                    } label: {
-                        Image(systemName: showDark ? "moon" : "sun.max")
                     }
+                    .padding()
+                    .padding(.bottom, didChange ? 88 : 0)
                 }
             }
-            .task {
-                loadCarPlay()
+
+            if didChange {
+                Button {
+                    applyCarPlay()
+                } label: {
+                    Label(isApplying ? "Applying..." : "Apply CarPlay Wallpapers", systemImage: "checkmark.circle")
+                        .frame(maxWidth: .infinity)
+                }
+                .buttonStyle(.borderedProminent)
+                .controlSize(.large)
+                .disabled(isApplying || carPlayHash.isEmpty)
+                .padding()
+                .background(.bar)
             }
+        }
+        .task {
+            loadCarPlay()
         }
     }
 
@@ -487,47 +457,15 @@ private struct PosterBoardWallpaperIndexView: View {
     }
 
     var body: some View {
-        NavigationStack {
-            ScrollView {
-                VStack(spacing: 12) {
+        ScrollView {
+            VStack(spacing: 12) {
+                HStack(spacing: 10) {
                     Picker("Type", selection: $selectedType) {
                         Text("Custom").tag(PosterBoardWallpaper.WallpaperType.custom)
                         Text("Apple").tag(PosterBoardWallpaper.WallpaperType.apple)
                     }
                     .pickerStyle(.segmented)
-                    .padding(.horizontal)
 
-                    if filteredWallpapers.isEmpty {
-                        VStack(spacing: 12) {
-                            ProgressView()
-                            Text(wallpaperManager.downloadableStatus)
-                                .foregroundStyle(.secondary)
-                                .multilineTextAlignment(.center)
-                        }
-                        .padding(.top, 48)
-                    } else {
-                        LazyVGrid(columns: [GridItem(.adaptive(minimum: 165))], spacing: 12) {
-                            ForEach(filteredWallpapers) { wallpaper in
-                                Button {
-                                    download(wallpaper)
-                                } label: {
-                                    PosterBoardWallpaperIndexTile(
-                                        wallpaper: wallpaper,
-                                        previewURL: URL(string: wallpaper.preview),
-                                        isDownloading: downloadingID == wallpaper.id
-                                    )
-                                }
-                                .buttonStyle(.plain)
-                            }
-                        }
-                        .padding()
-                    }
-                }
-            }
-            .searchable(text: $searchTerm)
-            .navigationTitle("Wallpaper Index")
-            .toolbar {
-                ToolbarItem(placement: .topBarTrailing) {
                     Menu {
                         ForEach(PosterBoardWallpaperFilter.allCases, id: \.self) { filter in
                             Button {
@@ -543,17 +481,47 @@ private struct PosterBoardWallpaperIndexView: View {
                         }
                     } label: {
                         Image(systemName: "line.3.horizontal.decrease.circle")
+                            .font(.title3)
+                            .frame(width: 34, height: 34)
                     }
                 }
-            }
-            .task {
-                if wallpaperManager.downloadableWallpapers.isEmpty {
-                    reload()
+                .padding(.horizontal)
+
+                if filteredWallpapers.isEmpty {
+                    VStack(spacing: 12) {
+                        ProgressView()
+                        Text(wallpaperManager.downloadableStatus)
+                            .foregroundStyle(.secondary)
+                            .multilineTextAlignment(.center)
+                    }
+                    .padding(.top, 48)
+                } else {
+                    LazyVGrid(columns: [GridItem(.adaptive(minimum: 165))], spacing: 12) {
+                        ForEach(filteredWallpapers) { wallpaper in
+                            Button {
+                                download(wallpaper)
+                            } label: {
+                                PosterBoardWallpaperIndexTile(
+                                    wallpaper: wallpaper,
+                                    previewURL: URL(string: wallpaper.preview),
+                                    isDownloading: downloadingID == wallpaper.id
+                                )
+                            }
+                            .buttonStyle(.plain)
+                        }
+                    }
+                    .padding()
                 }
             }
-            .onChange(of: selectedType) { _ in
+        }
+        .searchable(text: $searchTerm)
+        .task {
+            if wallpaperManager.downloadableWallpapers.isEmpty {
                 reload()
             }
+        }
+        .onChange(of: selectedType) { _ in
+            reload()
         }
     }
 
