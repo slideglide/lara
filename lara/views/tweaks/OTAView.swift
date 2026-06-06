@@ -51,18 +51,40 @@ struct OTAView: View {
                     }
                 }
                 .disabled(isWorking || !otaDisabled)
-
-                Button("Respring") {
-                    mgr.respring()
-                }
-                .disabled(isWorking)
             }
         }
         .navigationTitle("OTA Updates")
+        .onAppear {
+            if !otaDisabled {
+                syncStateFromPlist()
+            }
+        }
         .alert("Result", isPresented: .constant(lastResult != nil)) {
             Button("OK") { lastResult = nil }
         } message: {
             Text(lastResult ?? "")
+        }
+    }
+
+    private func syncStateFromPlist() {
+        DispatchQueue.global(qos: .userInitiated).async {
+            let plistPath = "/private/var/db/com.apple.xpc.launchd/disabled.plist"
+            let daemonLabels = [
+                "com.apple.mobile.softwareupdated",
+                "com.apple.OTATaskingAgent",
+                "com.apple.softwareupdateservicesd",
+                "com.apple.mobile.NRDUpdated",
+            ]
+            guard let data = NSData(contentsOfFile: plistPath) as Data?,
+                  let plist = try? PropertyListSerialization.propertyList(from: data, options: [], format: nil) as? [String: Any] else {
+                return
+            }
+            let allDisabled = daemonLabels.allSatisfy { (plist[$0] as? Bool) == true }
+            if allDisabled {
+                DispatchQueue.main.async {
+                    otaDisabled = true
+                }
+            }
         }
     }
 
