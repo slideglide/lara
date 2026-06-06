@@ -30,12 +30,26 @@ enum DecryptStatus {
     case encrypted, unencrypted, unknown
 }
 
-enum DecryptedIPAFilter: String, CaseIterable, Identifiable {
-    case all = "All"
-    case today = "Today"
-    case week = "7 Days"
+enum DecryptedIPASort: String, CaseIterable, Identifiable {
+    case nameAscending = "A-Z"
+    case nameDescending = "Z-A"
+    case newest = "Newest"
+    case oldest = "Oldest"
+    case largest = "Largest"
+    case smallest = "Smallest"
 
     var id: String { rawValue }
+
+    var icon: String {
+        switch self {
+        case .nameAscending, .nameDescending:
+            return "textformat"
+        case .newest, .oldest:
+            return "calendar"
+        case .largest, .smallest:
+            return "arrow.up.arrow.down"
+        }
+    }
 }
 
 struct DecryptView: View {
@@ -389,26 +403,36 @@ struct DecryptedIPAListView: View {
     @Environment(\.dismiss) private var dismiss
     @State private var ipas: [DecryptedIPA] = []
     @State private var query = ""
-    @State private var filter: DecryptedIPAFilter = .all
+    @State private var sort: DecryptedIPASort = .newest
 
     private var filteredIPAs: [DecryptedIPA] {
         let trimmedQuery = query.trimmingCharacters(in: .whitespacesAndNewlines)
-        let now = Date()
-        return ipas.filter { ipa in
-            let matchesQuery = trimmedQuery.isEmpty ||
+        let matchingIPAs = ipas.filter { ipa in
+            trimmedQuery.isEmpty ||
                 ipa.name.localizedCaseInsensitiveContains(trimmedQuery)
+        }
 
-            let matchesFilter: Bool
-            switch filter {
-            case .all:
-                matchesFilter = true
-            case .today:
-                matchesFilter = ipa.modified.map { Calendar.current.isDateInToday($0) } ?? false
-            case .week:
-                matchesFilter = ipa.modified.map { $0 >= now.addingTimeInterval(-7 * 24 * 60 * 60) } ?? false
+        switch sort {
+        case .nameAscending:
+            return matchingIPAs.sorted {
+                $0.name.localizedCaseInsensitiveCompare($1.name) == .orderedAscending
             }
-
-            return matchesQuery && matchesFilter
+        case .nameDescending:
+            return matchingIPAs.sorted {
+                $0.name.localizedCaseInsensitiveCompare($1.name) == .orderedDescending
+            }
+        case .newest:
+            return matchingIPAs.sorted {
+                ($0.modified ?? .distantPast) > ($1.modified ?? .distantPast)
+            }
+        case .oldest:
+            return matchingIPAs.sorted {
+                ($0.modified ?? .distantFuture) < ($1.modified ?? .distantFuture)
+            }
+        case .largest:
+            return matchingIPAs.sorted { $0.size > $1.size }
+        case .smallest:
+            return matchingIPAs.sorted { $0.size < $1.size }
         }
     }
 
@@ -420,12 +444,28 @@ struct DecryptedIPAListView: View {
                         .textInputAutocapitalization(.never)
                         .autocorrectionDisabled()
 
-                    Picker("Filter", selection: $filter) {
-                        ForEach(DecryptedIPAFilter.allCases) { option in
-                            Text(option.rawValue).tag(option)
+                    HStack {
+                        Menu {
+                            ForEach(DecryptedIPASort.allCases) { option in
+                                Button {
+                                    sort = option
+                                } label: {
+                                    if sort == option {
+                                        Label(option.rawValue, systemImage: "checkmark")
+                                    } else {
+                                        Text(option.rawValue)
+                                    }
+                                }
+                            }
+                        } label: {
+                            Label(sort.rawValue, systemImage: sort.icon)
+                                .padding(.horizontal, 12)
+                                .padding(.vertical, 8)
+                                .background(.thinMaterial)
+                                .clipShape(Capsule())
                         }
+                        Spacer()
                     }
-                    .pickerStyle(.segmented)
 
                     Button {
                         openInFiles()
