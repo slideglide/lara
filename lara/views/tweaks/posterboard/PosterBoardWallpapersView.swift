@@ -7,125 +7,45 @@ import PhotosUI
 import SwiftUI
 import UniformTypeIdentifiers
 
-private enum PosterBoardWallpaperTab: CaseIterable, Hashable {
-    case posterBoard
-    case carPlay
-    case index
-
-    var title: String {
-        switch self {
-        case .posterBoard:
-            return "PosterBoard"
-        case .carPlay:
-            return "CarPlay"
-        case .index:
-            return "Wallpaper Index"
-        }
-    }
-
-    var tabTitle: String {
-        switch self {
-        case .posterBoard:
-            return "PosterBoard"
-        case .carPlay:
-            return "CarPlay"
-        case .index:
-            return "Index"
-        }
-    }
-
-    var icon: String {
-        switch self {
-        case .posterBoard:
-            return "lock.fill"
-        case .carPlay:
-            return "car.fill"
-        case .index:
-            return "safari.fill"
-        }
-    }
-}
-
 struct PosterBoardWallpapersView: View {
     @ObservedObject var mgr: laramgr
-    @ObservedObject private var wallpaperManager = PosterBoardWallpaperManager.shared
 
     @AppStorage("pbHash") private var posterBoardHash = ""
     @AppStorage("cpHash") private var carPlayHash = ""
 
-    @State private var selectedTab: PosterBoardWallpaperTab = .posterBoard
-
-    private var tabs: [PosterBoardWallpaperTab] {
-        wallpaperManager.supportsCarPlay() ? PosterBoardWallpaperTab.allCases : [.posterBoard, .index]
+    var body: some View {
+        PosterBoardLockScreenView(mgr: mgr, posterBoardHash: $posterBoardHash, carPlayHash: $carPlayHash)
+            .navigationTitle("PosterBoard")
+            .navigationBarTitleDisplayMode(.large)
     }
+}
+
+private struct PosterBoardCarPlayNavigationLink: View {
+    @ObservedObject private var wallpaperManager = PosterBoardWallpaperManager.shared
+    @Binding var carPlayHash: String
 
     var body: some View {
-        ZStack(alignment: .bottom) {
-            content
-                .safeAreaInset(edge: .bottom, spacing: 0) {
-                    Color.clear.frame(height: 118)
-                }
-
-            PosterBoardWallpaperTabBar(selectedTab: $selectedTab, tabs: tabs)
-        }
-        .navigationTitle(selectedTab.title)
-        .navigationBarTitleDisplayMode(.large)
-        .onAppear {
-            mgr.hideRootTabBar = true
-        }
-        .onDisappear {
-            mgr.hideRootTabBar = false
-        }
-    }
-
-    @ViewBuilder
-    private var content: some View {
-        switch selectedTab {
-        case .posterBoard:
-            PosterBoardLockScreenView(mgr: mgr, posterBoardHash: $posterBoardHash, carPlayHash: $carPlayHash)
-        case .carPlay:
-            if wallpaperManager.supportsCarPlay() {
+        if wallpaperManager.supportsCarPlay() {
+            NavigationLink {
                 PosterBoardCarPlayView(carPlayHash: $carPlayHash)
-            } else {
-                PosterBoardLockScreenView(mgr: mgr, posterBoardHash: $posterBoardHash, carPlayHash: $carPlayHash)
+                    .navigationTitle("CarPlay")
+                    .navigationBarTitleDisplayMode(.large)
+            } label: {
+                Label("CarPlay Wallpapers", systemImage: "car.fill")
             }
-        case .index:
-            PosterBoardWallpaperIndexView()
         }
     }
 }
 
-private struct PosterBoardWallpaperTabBar: View {
-    @Binding var selectedTab: PosterBoardWallpaperTab
-    let tabs: [PosterBoardWallpaperTab]
-
+private struct PosterBoardWallpaperIndexNavigationLink: View {
     var body: some View {
-        VStack(spacing: 0) {
-            Divider()
-            HStack {
-                ForEach(tabs, id: \.self) { tab in
-                    Button {
-                        selectedTab = tab
-                    } label: {
-                        VStack(spacing: 4) {
-                            Image(systemName: tab.icon)
-                                .font(.system(size: 24))
-                            Text(tab.tabTitle)
-                                .font(.caption)
-                                .fontWeight(.semibold)
-                        }
-                        .frame(maxWidth: .infinity)
-                        .foregroundStyle(selectedTab == tab ? Color.accentColor : Color.secondary)
-                    }
-                    .buttonStyle(.plain)
-                }
-            }
-            .padding(.top, 10)
-            Spacer(minLength: 0)
+        NavigationLink {
+            PosterBoardWallpaperIndexView()
+                .navigationTitle("Wallpaper Index")
+                .navigationBarTitleDisplayMode(.large)
+        } label: {
+            Label("Wallpaper Index", systemImage: "safari.fill")
         }
-        .frame(height: 142)
-        .background(Color(uiColor: .systemBackground))
-        .ignoresSafeArea(.container, edges: .bottom)
     }
 }
 
@@ -142,6 +62,13 @@ private struct PosterBoardLockScreenView: View {
 
     var body: some View {
         List {
+            Section {
+                PosterBoardCarPlayNavigationLink(carPlayHash: $carPlayHash)
+                PosterBoardWallpaperIndexNavigationLink()
+            } header: {
+                Text("Wallpapers")
+            }
+
             Section {
                 HStack {
                     Text("PosterBoard")
@@ -704,3 +631,4 @@ private struct PosterBoardWallpaperIndexTile: View {
         .clipShape(RoundedRectangle(cornerRadius: 8))
     }
 }
+

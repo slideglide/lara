@@ -78,7 +78,6 @@ struct lara: App {
                     .tag(taboptions.logs)
                 }
             }
-            .toolbar(mgr.hideRootTabBar ? .hidden : .visible, for: .tabBar)
             .environmentObject(mgr)
             .overlay {
                 if mgr.showrespring {
