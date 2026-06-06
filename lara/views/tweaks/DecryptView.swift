@@ -443,35 +443,6 @@ struct DecryptedIPAListView: View {
                     TextField("Filter IPAs", text: $query)
                         .textInputAutocapitalization(.never)
                         .autocorrectionDisabled()
-
-                    HStack {
-                        Menu {
-                            ForEach(DecryptedIPASort.allCases) { option in
-                                Button {
-                                    sort = option
-                                } label: {
-                                    if sort == option {
-                                        Label(option.rawValue, systemImage: "checkmark")
-                                    } else {
-                                        Text(option.rawValue)
-                                    }
-                                }
-                            }
-                        } label: {
-                            Label(sort.rawValue, systemImage: sort.icon)
-                                .padding(.horizontal, 12)
-                                .padding(.vertical, 8)
-                                .background(.thinMaterial)
-                                .clipShape(Capsule())
-                        }
-                        Spacer()
-                    }
-
-                    Button {
-                        openInFiles()
-                    } label: {
-                        Label("Open in Files", systemImage: "folder")
-                    }
                 }
 
                 Section {
@@ -501,6 +472,27 @@ struct DecryptedIPAListView: View {
                         }
                         .onDelete(perform: deleteIPAs)
                     }
+                } header: {
+                    HStack {
+                        Spacer()
+                        Menu {
+                            ForEach(DecryptedIPASort.allCases) { option in
+                                Button {
+                                    sort = option
+                                } label: {
+                                    if sort == option {
+                                        Label(option.rawValue, systemImage: "checkmark")
+                                    } else {
+                                        Label(option.rawValue, systemImage: option.icon)
+                                    }
+                                }
+                            }
+                        } label: {
+                            Label("Filters", systemImage: "line.3.horizontal.decrease.circle")
+                                .font(.subheadline.weight(.semibold))
+                        }
+                    }
+                    .textCase(nil)
                 }
             }
             .navigationTitle("Decrypted IPAs")
@@ -508,7 +500,12 @@ struct DecryptedIPAListView: View {
                 ToolbarItem(placement: .cancellationAction) {
                     Button("Done") { dismiss() }
                 }
-                ToolbarItem(placement: .topBarTrailing) {
+                ToolbarItemGroup(placement: .topBarTrailing) {
+                    Button {
+                        openInFiles()
+                    } label: {
+                        Image(systemName: "folder")
+                    }
                     Button {
                         loadIPAs()
                     } label: {
