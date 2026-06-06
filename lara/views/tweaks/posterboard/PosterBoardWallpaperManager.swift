@@ -16,6 +16,7 @@ enum PosterBoardApplyError: LocalizedError {
     case wrongHash
     case collectionsNeedReset
     case missingDescriptors
+    case invalidTendies(String)
     case unexpected(String)
 
     var errorDescription: String? {
@@ -32,6 +33,8 @@ enum PosterBoardApplyError: LocalizedError {
             return "The target folder is not set up correctly. Reset PosterBoard collections and try again."
         case .missingDescriptors:
             return "No PosterBoard descriptors were found in this tendies file."
+        case .invalidTendies(let message):
+            return message
         case .unexpected(let message):
             return message
         }
@@ -254,6 +257,7 @@ final class PosterBoardWallpaperManager: ObservableObject {
             for descriptorRoot in descriptorRoots {
                 for descriptor in try fm.contentsOfDirectory(at: descriptorRoot, includingPropertiesForKeys: nil, options: .skipsHiddenFiles) {
                     guard descriptor.lastPathComponent != "__MACOSX" else { continue }
+                    try validateDescriptor(descriptor)
                     try randomizeWallpaperIdentifier(in: descriptor)
                     let staged = try createStagingURL()
                     try fm.moveItem(at: descriptor, to: staged)
@@ -512,6 +516,79 @@ final class PosterBoardWallpaperManager: ObservableObject {
             default:
                 continue
             }
+        }
+    }
+
+    private func validateDescriptor(_ descriptor: URL) throws {
+        var isDirectory: ObjCBool = false
+        guard fm.fileExists(atPath: descriptor.path, isDirectory: &isDirectory), isDirectory.boolValue else {
+            throw PosterBoardApplyError.invalidTendies("A PosterBoard descriptor is not a directory.")
+        }
+
+        let identifierURL = descriptor.appendingPathComponent("com.apple.posterkit.provider.descriptor.identifier")
+        guard let identifier = try? String(contentsOf: identifierURL).trimmingCharacters(in: .whitespacesAndNewlines),
+              !identifier.isEmpty else {
+            throw PosterBoardApplyError.invalidTendies("A PosterBoard descriptor is missing its provider identifier.")
+        }
+
+        let contentsURL = descriptor.appendingPathComponent("versions/1/contents", isDirectory: true)
+        guard fm.fileExists(atPath: contentsURL.path, isDirectory: &isDirectory), isDirectory.boolValue else {
+            throw PosterBoardApplyError.invalidTendies("A PosterBoard descriptor is missing versioned contents.")
+        }
+
+        let userInfoURL = contentsURL.appendingPathComponent("com.apple.posterkit.provider.contents.userInfo")
+        let userInfo = try propertyListDictionary(at: userInfoURL)
+        guard userInfo["wallpaperRepresentingIdentifier"] != nil else {
+            throw PosterBoardApplyError.invalidTendies("A PosterBoard descriptor has invalid provider user info.")
+        }
+
+        var foundWallpaperPlist = false
+        guard let enumerator = fm.enumerator(at: descriptor, includingPropertiesForKeys: [.isRegularFileKey], options: [.skipsHiddenFiles, .skipsPackageDescendants]) else {
+            throw PosterBoardApplyError.invalidTendies("A PosterBoard descriptor could not be inspected.")
+        }
+
+        for case let fileURL as URL in enumerator {
+            guard (try? fileURL.resourceValues(forKeys: [.isRegularFileKey]).isRegularFile) == true else {
+                continue
+            }
+
+            switch fileURL.lastPathComponent {
+            case "Wallpaper.plist":
+                let plist = try propertyListDictionary(at: fileURL)
+                guard plist["identifier"] != nil else {
+                    throw PosterBoardApplyError.invalidTendies("A PosterBoard wallpaper plist is missing its identifier.")
+                }
+                foundWallpaperPlist = true
+            case _ where fileURL.pathExtension.lowercased() == "plist":
+                _ = try propertyListDictionary(at: fileURL)
+            case _ where fileURL.pathExtension.lowercased() == "xml" || fileURL.pathExtension.lowercased() == "caml":
+                try validateXML(at: fileURL)
+            default:
+                continue
+            }
+        }
+
+        guard foundWallpaperPlist else {
+            throw PosterBoardApplyError.invalidTendies("A PosterBoard descriptor does not contain a wallpaper plist.")
+        }
+    }
+
+    private func propertyListDictionary(at url: URL) throws -> [String: Any] {
+        let data = try Data(contentsOf: url)
+        guard let plist = try PropertyListSerialization.propertyList(from: data, options: [], format: nil) as? [String: Any] else {
+            throw PosterBoardApplyError.invalidTendies("\(url.lastPathComponent) is not a valid property list.")
+        }
+        return plist
+    }
+
+    private func validateXML(at url: URL) throws {
+        let data = try Data(contentsOf: url)
+        guard !data.isEmpty else {
+            throw PosterBoardApplyError.invalidTendies("\(url.lastPathComponent) is empty.")
+        }
+        let parser = XMLParser(data: data)
+        guard parser.parse() else {
+            throw PosterBoardApplyError.invalidTendies("\(url.lastPathComponent) is not valid XML.")
         }
     }
 
