@@ -8,6 +8,8 @@ import SwiftUI
 import UniformTypeIdentifiers
 
 struct PosterBoardWallpapersView: View {
+    @Environment(\.dismiss) private var dismiss
+
     @ObservedObject var mgr: laramgr
     @ObservedObject private var wallpaperManager = PosterBoardWallpaperManager.shared
 
@@ -15,25 +17,38 @@ struct PosterBoardWallpapersView: View {
     @AppStorage("cpHash") private var carPlayHash = ""
 
     var body: some View {
-        TabView {
-            PosterBoardLockScreenView(mgr: mgr, posterBoardHash: $posterBoardHash, carPlayHash: $carPlayHash)
-                .tabItem {
-                    Label("PosterBoard", systemImage: "lock")
+        NavigationStack {
+            TabView {
+                PosterBoardLockScreenView(mgr: mgr, posterBoardHash: $posterBoardHash, carPlayHash: $carPlayHash)
+                    .tabItem {
+                        Label("PosterBoard", systemImage: "lock")
+                    }
+
+                if wallpaperManager.supportsCarPlay() {
+                    PosterBoardCarPlayView(carPlayHash: $carPlayHash)
+                        .tabItem {
+                            Label("CarPlay", systemImage: "car")
+                        }
                 }
 
-            if wallpaperManager.supportsCarPlay() {
-                PosterBoardCarPlayView(carPlayHash: $carPlayHash)
+                PosterBoardWallpaperIndexView()
                     .tabItem {
-                        Label("CarPlay", systemImage: "car")
+                        Label("Index", systemImage: "safari")
                     }
             }
-
-            PosterBoardWallpaperIndexView()
-                .tabItem {
-                    Label("Index", systemImage: "safari")
+            .navigationTitle("PosterBoard Wallpapers")
+            .navigationBarTitleDisplayMode(.large)
+            .toolbar {
+                ToolbarItem(placement: .topBarLeading) {
+                    Button {
+                        dismiss()
+                    } label: {
+                        Image(systemName: "chevron.left")
+                            .fontWeight(.semibold)
+                    }
                 }
+            }
         }
-        .navigationTitle("PosterBoard Wallpapers")
     }
 }
 

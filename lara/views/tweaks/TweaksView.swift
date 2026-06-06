@@ -26,10 +26,9 @@ struct TweaksView: View {
                 Section(header: HeaderLabel(text: "Lock Screen", icon: "lock")) {
                     NavigationLink("Passcode Theme", destination: PasscodeView(mgr: mgr))
                         .disabled(!mgr.sbxready)
-                    NavigationLink {
+                    NavigationLink("PosterBoard Wallpapers") {
                         PosterBoardWallpapersView(mgr: mgr)
-                    } label: {
-                        Label("PosterBoard Wallpapers", systemImage: "photo.on.rectangle")
+                            .toolbar(.hidden, for: .navigationBar)
                     }
                     .disabled(!mgr.dsready)
                 }
