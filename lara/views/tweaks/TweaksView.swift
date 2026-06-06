@@ -26,6 +26,8 @@ struct TweaksView: View {
                 Section(header: HeaderLabel(text: "Lock Screen", icon: "lock")) {
                     NavigationLink("Passcode Theme", destination: PasscodeView(mgr: mgr))
                         .disabled(!mgr.sbxready)
+                    NavigationLink("PosterBoard Wallpapers", destination: PosterBoardWallpapersView(mgr: mgr))
+                        .disabled(!mgr.dsready)
                 }
                 
                 Section(header: HeaderLabel(text: "Apps", icon: "app")) {
