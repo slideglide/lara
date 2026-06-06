@@ -74,10 +74,11 @@ struct lara: App {
                     LogsView(logger: globallogger)
                         .tabItem {
                             Image(systemName: "terminal")
-                        }
-                        .tag(taboptions.logs)
+                    }
+                    .tag(taboptions.logs)
                 }
             }
+            .toolbar(mgr.hideRootTabBar ? .hidden : .visible, for: .tabBar)
             .environmentObject(mgr)
             .overlay {
                 if mgr.showrespring {

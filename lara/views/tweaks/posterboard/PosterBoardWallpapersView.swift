@@ -7,47 +7,61 @@ import PhotosUI
 import SwiftUI
 import UniformTypeIdentifiers
 
-struct PosterBoardWallpapersView: View {
-    @Environment(\.dismiss) private var dismiss
+private enum PosterBoardWallpaperTab: Hashable {
+    case posterBoard
+    case carPlay
+    case index
+}
 
+struct PosterBoardWallpapersView: View {
     @ObservedObject var mgr: laramgr
     @ObservedObject private var wallpaperManager = PosterBoardWallpaperManager.shared
 
     @AppStorage("pbHash") private var posterBoardHash = ""
     @AppStorage("cpHash") private var carPlayHash = ""
 
+    @State private var selectedTab: PosterBoardWallpaperTab = .posterBoard
+
+    private var title: String {
+        switch selectedTab {
+        case .posterBoard:
+            return "PosterBoard"
+        case .carPlay:
+            return "CarPlay"
+        case .index:
+            return "Wallpaper Index"
+        }
+    }
+
     var body: some View {
-        NavigationStack {
-            TabView {
-                PosterBoardLockScreenView(mgr: mgr, posterBoardHash: $posterBoardHash, carPlayHash: $carPlayHash)
-                    .tabItem {
-                        Label("PosterBoard", systemImage: "lock")
-                    }
-
-                if wallpaperManager.supportsCarPlay() {
-                    PosterBoardCarPlayView(carPlayHash: $carPlayHash)
-                        .tabItem {
-                            Label("CarPlay", systemImage: "car")
-                        }
+        TabView(selection: $selectedTab) {
+            PosterBoardLockScreenView(mgr: mgr, posterBoardHash: $posterBoardHash, carPlayHash: $carPlayHash)
+                .tabItem {
+                    Label("PosterBoard", systemImage: "lock")
                 }
+                .tag(PosterBoardWallpaperTab.posterBoard)
 
-                PosterBoardWallpaperIndexView()
+            if wallpaperManager.supportsCarPlay() {
+                PosterBoardCarPlayView(carPlayHash: $carPlayHash)
                     .tabItem {
-                        Label("Index", systemImage: "safari")
+                        Label("CarPlay", systemImage: "car")
                     }
+                    .tag(PosterBoardWallpaperTab.carPlay)
             }
-            .navigationTitle("PosterBoard Wallpapers")
-            .navigationBarTitleDisplayMode(.large)
-            .toolbar {
-                ToolbarItem(placement: .topBarLeading) {
-                    Button {
-                        dismiss()
-                    } label: {
-                        Image(systemName: "chevron.left")
-                            .fontWeight(.semibold)
-                    }
+
+            PosterBoardWallpaperIndexView()
+                .tabItem {
+                    Label("Index", systemImage: "safari")
                 }
-            }
+                .tag(PosterBoardWallpaperTab.index)
+        }
+        .navigationTitle(title)
+        .navigationBarTitleDisplayMode(.large)
+        .onAppear {
+            mgr.hideRootTabBar = true
+        }
+        .onDisappear {
+            mgr.hideRootTabBar = false
         }
     }
 }

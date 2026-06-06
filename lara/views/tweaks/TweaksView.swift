@@ -28,7 +28,6 @@ struct TweaksView: View {
                         .disabled(!mgr.sbxready)
                     NavigationLink("PosterBoard Wallpapers") {
                         PosterBoardWallpapersView(mgr: mgr)
-                            .toolbar(.hidden, for: .navigationBar)
                     }
                     .disabled(!mgr.dsready)
                 }

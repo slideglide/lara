@@ -90,6 +90,7 @@ final class laramgr: ObservableObject {
     @Published var showrespring: Bool = false
     
     @Published var showLogs: Bool = false
+    @Published var hideRootTabBar: Bool = false
     
     var sbProc: RemoteCall?
     var ytProc = RemoteCall(process: "youtube", useMigFilterBypass: false)
